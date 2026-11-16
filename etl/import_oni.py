@@ -2,7 +2,7 @@ import sys
 import os
 import hashlib
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, UTC
 
 # Lien avec l'API pour utiliser les mêmes modèles
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'api')))
@@ -13,6 +13,13 @@ SEASON_TO_MONTH = {
     "DJF": 1, "JFM": 2, "FMA": 3, "MAM": 4, "AMJ": 5, "MJJ": 6,
     "JJA": 7, "JAS": 8, "ASO": 9, "SON": 10, "OND": 11, "NDJ": 12
 }
+
+def convertir_saison_en_date(season: str, year: int):
+    """Transforme une saison (ex: DJF) et une année en date (ex: 1950-01-01)."""
+    month = SEASON_TO_MONTH.get(season)
+    if not month:
+        return None
+    return datetime(year, month, 1).date()
 
 def main():
     filepath = "/app/data/oni.data"
@@ -29,7 +36,7 @@ def main():
     # 1. Source
     source = db.query(Source).filter_by(name="NOAA CPC").first()
     if not source:
-        source = Source(name="NOAA CPC", url="https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt", version="v6", extracted_at=datetime.utcnow())
+        source = Source(name="NOAA CPC", url="https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt", version="v6", extracted_at=datetime.now(UTC))
         db.add(source)
         db.commit()
         db.refresh(source)
