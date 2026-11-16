@@ -18,6 +18,7 @@ dist/
 # Données brutes (reproductibles depuis NOAA)
 data/*.csv
 data/*.txt
+data/*.data
 
 # OS / IDE
 .DS_Store
