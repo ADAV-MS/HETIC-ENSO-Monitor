@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from .routes import observations
 
 app = FastAPI(
     title="ENSO Monitor API",
@@ -9,3 +10,6 @@ app = FastAPI(
 @app.get("/api/v1/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+# On branche la route
+app.include_router(observations.router, prefix="/api/v1", tags=["Observations"])
