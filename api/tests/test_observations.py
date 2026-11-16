@@ -43,12 +43,18 @@ def setup_db():
     db.add(indice)
     db.commit()
     
-    imp = Import(source_id=source.id, row_count=2, checksum="123")
+    imp = Import(source_id=source.id, row_count=12, checksum="123")
     db.add(imp)
     db.commit()
     
-    db.add(Observation(import_id=imp.id, index_id=indice.id, date=date(2020,1,1), value=1.5))
-    db.add(Observation(import_id=imp.id, index_id=indice.id, date=date(2020,2,1), value=1.8))
+    # Seed de 12 observations fictives (1 par mois sur 2020)
+    for month in range(1, 13):
+        db.add(Observation(
+            import_id=imp.id,
+            index_id=indice.id,
+            date=date(2020, month, 1),
+            value=float(month) / 10
+        ))
     db.commit()
     db.close()
     
@@ -58,13 +64,15 @@ def setup_db():
 
 client = TestClient(app)
 
+# TEST 1 : Période valide → 200
 def test_observations_valid_period():
     response = client.get("/api/v1/observations?start=2020-01-01&end=2020-02-28")
     assert response.status_code == 200
     data = response.json()
     assert len(data["observations"]) == 2
-    assert data["observations"][0]["value"] == 1.5
+    assert data["observations"][0]["value"] == 0.1
 
+# TEST 2 : Date invalide → 422
 def test_observations_invalid_dates():
     # Format invalide
     response = client.get("/api/v1/observations?start=abc&end=2020-01-01")
@@ -73,3 +81,10 @@ def test_observations_invalid_dates():
     # Ordre inversé
     response = client.get("/api/v1/observations?start=2021-01-01&end=2020-01-01")
     assert response.status_code == 422
+
+# TEST 3 (bonus) : Période vide → 200 avec liste vide
+def test_observations_empty_period():
+    response = client.get("/api/v1/observations?start=2030-01-01&end=2030-12-31")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["observations"]) == 0
