@@ -1,0 +1,214 @@
+/* Variables pour garantir les contrastes WCAG AAA */
+:root {
+  --text-main: #000000;
+  --text-muted: #333333;
+  --bg-main: #ffffff;
+  --bg-subtle: #f4f4f5;
+  --primary: #004080;
+  --primary-hover: #002b55;
+  --border: #666666;
+  --error: #990000;
+  --error-bg: #fff0f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+/* Focus visible pour la navigation clavier */
+:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Skip link (accessibilité) */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.skip-link:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 600;
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+/* Layout principal */
+.app {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+header {
+  margin-bottom: 2rem;
+}
+
+.app h1 {
+  font-size: 2rem;
+  margin: 0 0 0.25rem 0;
+  color: var(--text-main);
+}
+
+.subtitle {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+/* Formulaire */
+.filters {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  padding: 1rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin-bottom: 1.5rem;
+}
+
+.filters label {
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-main);
+}
+
+.filters input,
+.filters button {
+  margin-top: 0.3rem;
+  padding: 0.5rem;
+  font-size: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-main);
+  color: var(--text-main);
+}
+
+.filters button {
+  background: var(--primary);
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.6rem 1.2rem;
+}
+
+.filters button:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.filters button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Métadonnées */
+.meta {
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  margin: 0.25rem 0;
+}
+
+.meta strong {
+  color: var(--text-main);
+}
+
+/* État vide */
+.empty {
+  padding: 1rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+/* Gestion des erreurs */
+.error {
+  color: var(--error);
+  font-weight: 600;
+  padding: 1rem;
+  background: var(--error-bg);
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  margin-bottom: 1.5rem;
+}
+
+.error p {
+  margin: 0 0 0.5rem 0;
+}
+
+.error button {
+  background: var(--error);
+  color: #ffffff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.error button:hover:not(:disabled) {
+  background: #660000;
+}
+
+.error button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Graphique */
+.chart {
+  margin: 1.5rem 0;
+}
+
+/* Tableau récapitulatif */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+caption {
+  text-align: left;
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-main);
+}
+
+th,
+td {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  text-align: left;
+  color: var(--text-main);
+}
+
+th {
+  background: var(--bg-subtle);
+  font-weight: 700;
+}

@@ -43,3 +43,24 @@ tests/test_observations.py::test_observations_empty_period PASSED
 - Format invalide ou ordre inversé → 422.
 - Période sans données → 200 avec liste vide.
 *(Note : les tests utilisent SQLite en mémoire avec `StaticPool`. La limite SQLite/PostgreSQL est documentée dans le README).*
+
+## Validation côté frontend
+
+En complément de la validation Pydantic côté API (issue #9), le frontend vérifie `start <= end` avant tout appel réseau. Si `start > end`, un message d'erreur s'affiche instantanément et le bouton « Réessayer » est proposé. Aucun appel API inutile n'est effectué.
+
+## 3. Accessibilité (Issue #14)
+
+**Tests manuels effectués :**
+
+- **Navigation clavier** : Tab depuis la barre d'adresse → "Date de début" → "Date de fin" → "Actualiser". Le focus est toujours visible (outline bleu) et l'ordre est logique. Aucun piège au clavier.
+- **Lecteur d'écran** : Le conteneur du graphique a `role="img"` et `aria-label="Graphique de l'indice ONI de 1997-01-01 à 1998-12-31"`. Le tableau récapitulatif est lu avec son caption et ses en-têtes.
+- **Contraste** (vérifié avec WebAIM Contrast Checker) :
+  - `#000000` sur `#ffffff` : **21:1** (WCAG AAA)
+  - `#ffffff` sur `#004080` : **9:1** (WCAG AAA)
+  - `#333333` sur `#ffffff` : **12.6:1** (WCAG AAA)
+- **Skip link** : Au premier Tab, un lien « Aller au contenu » devient visible et permet de sauter directement au contenu principal.
+
+**Audit automatisé :**
+
+- **Outil** : axe DevTools (extension navigateur)
+- **Résultat** : **0 problème automatique détecté** sur la page.
