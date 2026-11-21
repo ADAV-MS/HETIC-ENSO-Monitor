@@ -1,28 +1,89 @@
+/* Variables pour garantir les contrastes WCAG AAA */
+:root {
+  --text-main: #000000;
+  --text-muted: #333333;
+  --bg-main: #ffffff;
+  --bg-subtle: #f4f4f5;
+  --primary: #004080;
+  --primary-hover: #002b55;
+  --border: #666666;
+  --error: #990000;
+  --error-bg: #fff0f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+/* Focus visible pour la navigation clavier */
+:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Skip link (accessibilité) */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.skip-link:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 600;
+  display: inline-block;
+  margin-bottom: 1rem;
+}
+
+/* Layout principal */
 .app {
   max-width: 800px;
   margin: 0 auto;
   padding: 2rem 1rem;
 }
 
+header {
+  margin-bottom: 2rem;
+}
+
 .app h1 {
-  color: #000000;
   font-size: 2rem;
   margin: 0 0 0.25rem 0;
+  color: var(--text-main);
 }
 
-.app .subtitle {
-  color: #333333;
-  margin: 0 0 2rem 0;
+.subtitle {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: 1.1rem;
 }
 
+/* Formulaire */
 .filters {
   display: flex;
   gap: 1rem;
   flex-wrap: wrap;
   align-items: flex-end;
   padding: 1rem;
-  background: #f4f4f5;
-  border: 1px solid #666666;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
   border-radius: 4px;
   margin-bottom: 1.5rem;
 }
@@ -32,7 +93,7 @@
   flex-direction: column;
   font-weight: 600;
   font-size: 0.9rem;
-  color: #000000;
+  color: var(--text-main);
 }
 
 .filters input,
@@ -40,14 +101,14 @@
   margin-top: 0.3rem;
   padding: 0.5rem;
   font-size: 1rem;
-  border: 1px solid #666666;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: #ffffff;
-  color: #000000;
+  background: var(--bg-main);
+  color: var(--text-main);
 }
 
 .filters button {
-  background: #004080;
+  background: var(--primary);
   color: #ffffff;
   border: none;
   cursor: pointer;
@@ -56,7 +117,7 @@
 }
 
 .filters button:hover:not(:disabled) {
-  background: #002b55;
+  background: var(--primary-hover);
 }
 
 .filters button:disabled {
@@ -64,33 +125,44 @@
   cursor: not-allowed;
 }
 
-:focus-visible {
-  outline: 3px solid #004080;
-  outline-offset: 2px;
-}
-
+/* Métadonnées */
 .meta {
   font-size: 0.95rem;
-  color: #333333;
+  color: var(--text-muted);
   margin: 0.25rem 0;
 }
 
 .meta strong {
-  color: #000000;
+  color: var(--text-main);
 }
 
+/* État vide */
+.empty {
+  padding: 1rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+/* Gestion des erreurs */
 .error {
-  color: #990000;
+  color: var(--error);
   font-weight: 600;
   padding: 1rem;
-  background: #fff0f0;
-  border: 1px solid #990000;
+  background: var(--error-bg);
+  border: 1px solid var(--error);
   border-radius: 4px;
+  margin-bottom: 1.5rem;
+}
+
+.error p {
+  margin: 0 0 0.5rem 0;
 }
 
 .error button {
-  margin-top: 0.5rem;
-  background: #990000;
+  background: var(--error);
   color: #ffffff;
   border: none;
   padding: 0.5rem 1rem;
@@ -108,10 +180,12 @@
   cursor: not-allowed;
 }
 
+/* Graphique */
 .chart {
   margin: 1.5rem 0;
 }
 
+/* Tableau récapitulatif */
 table {
   width: 100%;
   border-collapse: collapse;
@@ -123,18 +197,18 @@ caption {
   font-weight: 700;
   font-size: 1.1rem;
   margin-bottom: 0.5rem;
-  color: #000000;
+  color: var(--text-main);
 }
 
 th,
 td {
   padding: 0.75rem;
-  border: 1px solid #666666;
+  border: 1px solid var(--border);
   text-align: left;
-  color: #000000;
+  color: var(--text-main);
 }
 
 th {
-  background: #f4f4f5;
+  background: var(--bg-subtle);
   font-weight: 700;
 }

@@ -17,7 +17,7 @@ function App() {
       const result = await fetchObservations(s, e);
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur inconnue');
+      setError(err instanceof Error ? err.message : 'Erreur de connexion à l\'API');
     } finally {
       setLoading(false);
     }
@@ -40,18 +40,22 @@ function App() {
   const stats =
     data && data.observations.length > 0
       ? {
-        moyenne: (data.observations.reduce((s, o) => s + o.value, 0) / data.observations.length).toFixed(2),
-        min: Math.min(...data.observations.map((o) => o.value)).toFixed(2),
-        max: Math.max(...data.observations.map((o) => o.value)).toFixed(2),
-      }
+          moyenne: (data.observations.reduce((s, o) => s + o.value, 0) / data.observations.length).toFixed(2),
+          min: Math.min(...data.observations.map((o) => o.value)).toFixed(2),
+          max: Math.max(...data.observations.map((o) => o.value)).toFixed(2),
+        }
       : null;
 
   return (
     <main className="app">
-      <h1>ENSO Monitor</h1>
-      <p className="subtitle">Indice ONI — NOAA CPC</p>
+      <a href="#contenu" className="skip-link">Aller au contenu</a>
+      
+      <header>
+        <h1 id="contenu">ENSO Monitor</h1>
+        <p className="subtitle">Indice ONI — NOAA CPC</p>
+      </header>
 
-      <form onSubmit={handleSubmit} className="filters">
+      <form onSubmit={handleSubmit} className="filters" aria-busy={loading}>
         <label htmlFor="start">
           Date de début
           <input
@@ -80,7 +84,7 @@ function App() {
       {error && (
         <div className="error" role="alert">
           <p>Erreur : {error}</p>
-          <button onClick={() => loadData(start, end)} disabled={loading}>
+          <button type="button" onClick={handleSubmit} disabled={loading}>
             {loading ? 'Nouvel essai...' : 'Réessayer'}
           </button>
         </div>
@@ -95,7 +99,7 @@ function App() {
           <p className="meta">Unité : {data.unit} (anomalie Niño 3.4)</p>
 
           {data.observations.length === 0 ? (
-            <p className="meta">Aucune observation pour cette période.</p>
+            <p className="empty">Aucune observation pour cette période.</p>
           ) : (
             <>
               <div
