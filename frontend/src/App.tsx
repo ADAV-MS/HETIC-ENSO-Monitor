@@ -30,16 +30,20 @@ function App() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (start > end) {
+      setError('La date de début doit être antérieure à la date de fin.');
+      return;
+    }
     loadData(start, end);
   };
 
   const stats =
     data && data.observations.length > 0
       ? {
-          moyenne: (data.observations.reduce((s, o) => s + o.value, 0) / data.observations.length).toFixed(2),
-          min: Math.min(...data.observations.map((o) => o.value)).toFixed(2),
-          max: Math.max(...data.observations.map((o) => o.value)).toFixed(2),
-        }
+        moyenne: (data.observations.reduce((s, o) => s + o.value, 0) / data.observations.length).toFixed(2),
+        min: Math.min(...data.observations.map((o) => o.value)).toFixed(2),
+        max: Math.max(...data.observations.map((o) => o.value)).toFixed(2),
+      }
       : null;
 
   return (
@@ -74,9 +78,12 @@ function App() {
       </form>
 
       {error && (
-        <p className="error" role="alert">
-          Erreur : {error}
-        </p>
+        <div className="error" role="alert">
+          <p>Erreur : {error}</p>
+          <button onClick={() => loadData(start, end)} disabled={loading}>
+            {loading ? 'Nouvel essai...' : 'Réessayer'}
+          </button>
+        </div>
       )}
 
       {data && (

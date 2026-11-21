@@ -43,3 +43,7 @@ tests/test_observations.py::test_observations_empty_period PASSED
 - Format invalide ou ordre inversé → 422.
 - Période sans données → 200 avec liste vide.
 *(Note : les tests utilisent SQLite en mémoire avec `StaticPool`. La limite SQLite/PostgreSQL est documentée dans le README).*
+
+## Validation côté frontend
+
+En complément de la validation Pydantic côté API (issue #9), le frontend vérifie `start <= end` avant tout appel réseau. Si `start > end`, un message d'erreur s'affiche instantanément et le bouton « Réessayer » est proposé. Aucun appel API inutile n'est effectué.
