@@ -136,4 +136,6 @@ Le build Vite peut avertir que le bundle JavaScript dépasse 500 Ko ; ce warning
 
 Le dépôt contient **le code applicatif et sa documentation d'exécution**. Le sujet HETIC demande **séparément** un dossier de conception PDF (15 pages maximum, couverture comprise), avec parcours UX, diagrammes UML (cas d'utilisation, domaine/classes, séquence), architecture et schéma SQL, organisation, tests, sécurité, déploiement cible et bilan avec usage de l'IA. Le README ne se substitue pas à ce livrable.
 
+Les trois diagrammes sont versionnés dans [docs/uml](docs/uml/README.md), avec les sources Mermaid et les exports SVG/PNG utilisables dans le dossier de conception.
+
 **Docker Compose ci-dessus est destiné au développement local.** Le déploiement sur VPS avec HTTPS/Caddy, sauvegardes et gestion des secrets relève de l'architecture cible à justifier dans le dossier ; il n'est pas fourni ici comme un déploiement public opérationnel.
