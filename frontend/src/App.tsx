@@ -93,11 +93,20 @@ function App() {
 
       {data && (
         <>
-          <p className="meta">
-            Source : <strong>{data.source}</strong> — version {data.version} — extrait le{' '}
-            {new Date(data.extracted_at).toLocaleDateString('fr-FR')}
-          </p>
-          <p className="meta">Unité : {data.unit} (anomalie Niño 3.4)</p>
+          {data.source ? (
+            <p className="meta">
+              Source : <strong>{data.source}</strong> — version {data.version}
+              {data.extracted_at && (
+                <> — extrait le {new Date(data.extracted_at).toLocaleDateString('fr-FR')}</>
+              )}
+            </p>
+          ) : data.observations.length > 0 ? (
+            <p className="meta">
+              Plusieurs sources ou indices pour cette période ; chaque observation
+              possède sa propre provenance dans la réponse API.
+            </p>
+          ) : null}
+          {data.unit && <p className="meta">Unité : {data.unit} (anomalie Niño 3.4)</p>}
 
           {data.observations.length === 0 ? (
             <p className="empty">Aucune observation pour cette période.</p>

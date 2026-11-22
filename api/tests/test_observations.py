@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from datetime import date
+from datetime import date, datetime
 
 from app.main import app
 from app.routes.observations import get_db
@@ -88,3 +88,130 @@ def test_observations_empty_period():
     assert response.status_code == 200
     data = response.json()
     assert len(data["observations"]) == 0
+
+def ajouter_source_secondaire():
+    """Ajoute une observation ONI provenant d'un autre import / d'une autre source."""
+    with TestingSessionLocal() as db:
+        indice = db.query(Indice).filter_by(code="ONI").one()
+        source = Source(
+            name="NOAA secondaire",
+            url="https://example.org/oni.txt",
+            version="v2",
+            extracted_at=datetime(2026, 2, 1),
+        )
+        db.add(source)
+        db.flush()
+        import_record = Import(source_id=source.id, row_count=1, checksum="second")
+        db.add(import_record)
+        db.flush()
+        db.add(Observation(
+            import_id=import_record.id,
+            index_id=indice.id,
+            date=date(2021, 1, 1),
+            value=2.1,
+        ))
+        ids = source.id, import_record.id
+        db.commit()
+    return ids
+
+
+def test_provenance_filtree_sur_la_source_reelle():
+    """Une autre source en base ne doit pas imposer la première source à l'API."""
+    source_id, import_id = ajouter_source_secondaire()
+    response = client.get("/api/v1/observations?start=2021-01-01&end=2021-01-01")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "NOAA secondaire"
+    assert data["version"] == "v2"
+    assert len(data["observations"]) == 1
+    provenance = data["observations"][0]["provenance"]
+    assert provenance["source_id"] == source_id
+    assert provenance["source"] == "NOAA secondaire"
+    assert provenance["source_url"] == "https://example.org/oni.txt"
+    assert provenance["import_id"] == import_id
+    assert provenance["indice_code"] == "ONI"
+
+
+def test_plusieurs_sources_sans_provenance_arbitraire():
+    """Si deux sources sont présentes, chacune reste associée à sa ligne."""
+    source_id, import_id = ajouter_source_secondaire()
+    response = client.get("/api/v1/observations?start=2020-12-01&end=2021-01-01")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["observations"]) == 2
+    assert data["source"] is None
+    assert data["indice"] is None
+    assert data["version"] is None
+    assert data["extracted_at"] is None
+    assert data["observations"][0]["provenance"]["source"] == "NOAA"
+    assert data["observations"][1]["provenance"]["source_id"] == source_id
+    assert data["observations"][1]["provenance"]["import_id"] == import_id
+
+
+def test_plusieurs_indices_conservent_leur_identite():
+    """Deux indices d'une même source ne sont pas confondus dans les métadonnées."""
+    with TestingSessionLocal() as db:
+        import_record = db.query(Import).one()
+        roni = Indice(code="RONI", label="Relative Oceanic Niño Index", unit="°C anomaly")
+        db.add(roni)
+        db.flush()
+        db.add(Observation(
+            import_id=import_record.id,
+            index_id=roni.id,
+            date=date(2020, 1, 1),
+            value=-0.5,
+        ))
+        db.commit()
+
+    response = client.get("/api/v1/observations?start=2020-01-01&end=2020-01-01")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["indice"] is None
+    assert [item["provenance"]["indice_code"] for item in data["observations"]] == [
+        "ONI", "RONI"
+    ]
+
+
+def test_plusieurs_imports_meme_source_conservent_metadonnees_communes():
+    """Un nouvel import de la même source ne rend pas la période artificiellement mixte."""
+    with TestingSessionLocal() as db:
+        source = db.query(Source).one()
+        indice = db.query(Indice).one()
+        second_import = Import(source_id=source.id, row_count=1, checksum="newer")
+        db.add(second_import)
+        db.flush()
+        db.add(Observation(
+            import_id=second_import.id,
+            index_id=indice.id,
+            date=date(2021, 1, 1),
+            value=0.3,
+        ))
+        second_import_id = second_import.id
+        db.commit()
+
+    response = client.get("/api/v1/observations?start=2020-12-01&end=2021-01-01")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "NOAA"
+    assert data["indice"] == "ONI"
+    assert len(data["observations"]) == 2
+    assert data["observations"][1]["provenance"]["import_id"] == second_import_id
+
+
+def test_une_base_sans_source_ne_provoque_pas_de_500():
+    """En l'absence d'observations, aucune provenance n'est inventée."""
+    with TestingSessionLocal() as db:
+        db.query(Observation).delete()
+        db.query(Import).delete()
+        db.query(Indice).delete()
+        db.query(Source).delete()
+        db.commit()
+
+    response = client.get("/api/v1/observations?start=2020-01-01&end=2020-12-31")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["observations"] == []
+    assert data["source"] is None
+    assert data["extracted_at"] is None
