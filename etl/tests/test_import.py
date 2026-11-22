@@ -324,3 +324,159 @@ def test_main_argument_explicite_prioritaire_sur_env(tmp_path, monkeypatch, sess
         observations = db.query(Observation).all()
         assert len(observations) == 1
         assert (observations[0].date.year, observations[0].value) == (2001, -0.42)
+
+
+# #32 — Traçabilité scientifique et valeurs révisées NOAA.
+
+def _horodatage_utc(value):
+    """SQLite perd le fuseau sur les DateTime ; normalise pour les assertions."""
+    from datetime import UTC
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def test_import_trace_la_vraie_lecture_locale_et_checksum(tmp_path, sessions_tracees):
+    from datetime import UTC
+    from hashlib import sha256
+    import import_oni
+
+    SessionTest, sessions = sessions_tracees
+    fichier = tmp_path / "oni.data"
+    fichier.write_text("SEAS YR TOTAL ANOM\nDJF 2001 25.01 -0.42\n", encoding="utf-8")
+
+    avant = datetime.now(UTC)
+    import_oni.main(str(fichier))
+    apres = datetime.now(UTC)
+
+    assert sessions[0].nb_commits == 1
+    assert sessions[0].est_fermee
+    with SessionTest() as db:
+        source = db.query(Source).filter_by(name="NOAA CPC").one()
+        trace = db.query(Import).one()
+        obs = db.query(Observation).one()
+        assert source.version == "v6"
+        assert source.url == "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
+        assert trace.row_count == 1
+        assert trace.checksum == sha256(fichier.read_bytes()).hexdigest()
+        assert avant <= _horodatage_utc(trace.extracted_at) <= apres
+        assert avant <= _horodatage_utc(source.extracted_at) <= apres
+        assert obs.import_id == trace.id
+
+
+def test_reimport_noaa_revision_et_observation_inchangee(tmp_path, sessions_tracees, capsys):
+    """Une valeur modifiee est actualisee ; une valeur identique reste liee a son import."""
+    import import_oni
+
+    SessionTest, sessions = sessions_tracees
+    fichier = tmp_path / "oni.data"
+    fichier.write_text(
+        "SEAS YR TOTAL ANOM\nDJF 2001 25.01 -0.42\nJFM 2001 26.22 -0.21\n",
+        encoding="utf-8",
+    )
+    import_oni.main(str(fichier))
+    with SessionTest() as db:
+        premier = db.query(Import).one()
+        premier_id = premier.id
+        ancien_checksum = premier.checksum
+
+    fichier.write_text(
+        "SEAS YR TOTAL ANOM\nDJF 2001 25.01 -0.38\nJFM 2001 26.22 -0.21\n",
+        encoding="utf-8",
+    )
+    import_oni.main(str(fichier))
+
+    assert len(sessions) == 2
+    assert all(s.nb_commits == 1 and s.est_fermee for s in sessions)
+    with SessionTest() as db:
+        assert db.query(Source).filter_by(name="NOAA CPC").count() == 1
+        assert db.query(Indice).filter_by(code="ONI").count() == 1
+        assert db.query(Import).count() == 2
+        assert db.query(Observation).count() == 2
+        imports = db.query(Import).order_by(Import.id).all()
+        assert imports[0].checksum == ancien_checksum
+        assert imports[1].checksum != ancien_checksum
+        assert imports[0].extracted_at is not None
+        assert imports[1].extracted_at is not None
+        obs = {o.date.month: o for o in db.query(Observation).all()}
+        assert obs[1].value == -0.38
+        assert obs[1].import_id == imports[1].id
+        assert obs[2].value == -0.21
+        assert obs[2].import_id == premier_id
+        assert _horodatage_utc(db.query(Source).one().extracted_at) == _horodatage_utc(imports[1].extracted_at)
+    assert "Insérées : 0, Ignorées (doublons) : 1, Révisées : 1" in capsys.readouterr().out
+
+
+def test_reimport_identique_conserve_identifiants_et_ne_duplique_pas(tmp_path, sessions_tracees):
+    import import_oni
+
+    SessionTest, _ = sessions_tracees
+    fichier = tmp_path / "oni.data"
+    fichier.write_text("SEAS YR TOTAL ANOM\nDJF 2001 25.01 -0.42\n", encoding="utf-8")
+    import_oni.main(str(fichier))
+    with SessionTest() as db:
+        original_id = db.query(Observation).one().import_id
+    import_oni.main(str(fichier))
+    with SessionTest() as db:
+        assert db.query(Import).count() == 2  # Une trace par tentative d'import.
+        assert db.query(Observation).count() == 1
+        assert db.query(Observation).one().import_id == original_id
+        assert db.query(Import).all()[0].checksum == db.query(Import).all()[1].checksum
+
+
+def test_revision_rollback_restitue_ancienne_valeur(tmp_path, monkeypatch, sessions_tracees):
+    """Si une revision plante apres flush, l'ancien contenu reste intact."""
+    import import_oni
+
+    SessionTest, sessions = sessions_tracees
+    fichier = tmp_path / "oni.data"
+    fichier.write_text("SEAS YR TOTAL ANOM\nDJF 2001 25.01 -0.42\n", encoding="utf-8")
+    import_oni.main(str(fichier))
+
+    with SessionTest() as db:
+        before = db.query(Observation).one()
+        old_id = before.import_id
+        old_value = before.value
+        old_date = _horodatage_utc(db.query(Source).one().extracted_at)
+
+    fichier.write_text("SEAS YR TOTAL ANOM\nDJF 2001 25.01 -0.31\n", encoding="utf-8")
+    original = import_oni.enregistrer_observations
+
+    def echouer_apres_revision(db, df, indice_id, import_id):
+        original(db, df, indice_id, import_id)
+        db.flush()
+        raise RuntimeError("revision echouee")
+
+    monkeypatch.setattr(import_oni, "enregistrer_observations", echouer_apres_revision)
+    with pytest.raises(RuntimeError, match="revision echouee"):
+        import_oni.main(str(fichier))
+
+    assert sessions[-1].nb_commits == 0
+    assert sessions[-1].nb_rollbacks == 1
+    assert sessions[-1].est_fermee
+    with SessionTest() as db:
+        obs = db.query(Observation).one()
+        assert obs.value == old_value
+        assert obs.import_id == old_id
+        assert db.query(Import).count() == 1
+        assert _horodatage_utc(db.query(Source).one().extracted_at) == old_date
+
+
+def test_rejet_saisons_en_double_et_rollback(tmp_path, sessions_tracees):
+    import import_oni
+
+    SessionTest, sessions = sessions_tracees
+    fichier = tmp_path / "oni.data"
+    fichier.write_text(
+        "SEAS YR TOTAL ANOM\nDJF 2001 25.01 -0.42\nDJF 2001 25.01 -0.31\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Saison en double"):
+        import_oni.main(str(fichier))
+
+    assert sessions[0].nb_rollbacks == 1
+    assert sessions[0].est_fermee
+    with SessionTest() as db:
+        assert db.query(Import).count() == 0
+        assert db.query(Observation).count() == 0

@@ -22,6 +22,7 @@ class ProvenanceOut(BaseModel):
     extracted_at: datetime | None
     import_id: int
     imported_at: datetime | None
+    checksum: str | None = None
     indice_code: str
     indice: str
     unit: str
