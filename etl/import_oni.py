@@ -45,8 +45,7 @@ def obtenir_ou_creer_source(db) -> Source:
             extracted_at=datetime.now(UTC),
         )
         db.add(source)
-        db.commit()
-        db.refresh(source)
+        db.flush()  # Attribue l'ID sans valider la transaction.
     return source
 
 
@@ -56,8 +55,7 @@ def obtenir_ou_creer_indice(db) -> Indice:
     if not indice:
         indice = Indice(code="ONI", label="Oceanic Niño Index", unit="°C anomaly")
         db.add(indice)
-        db.commit()
-        db.refresh(indice)
+        db.flush()  # Attribue l'ID sans valider la transaction.
     return indice
 
 
@@ -65,8 +63,7 @@ def enregistrer_import(db, source_id: int, row_count: int, checksum: str) -> Imp
     """Enregistre la traçabilité de l'import, avant les observations."""
     import_record = Import(source_id=source_id, row_count=row_count, checksum=checksum)
     db.add(import_record)
-    db.commit()
-    db.refresh(import_record)
+    db.flush()  # L'ID est nécessaire pour associer les observations.
     return import_record
 
 
@@ -100,7 +97,6 @@ def enregistrer_observations(db, df: pd.DataFrame, indice_id: int, import_id: in
         db.add(Observation(import_id=import_id, index_id=indice_id, date=obs_date, value=value))
         inserted += 1
 
-    db.commit()
     return inserted, skipped
 
 
@@ -116,6 +112,10 @@ def main(filepath: str = "/app/data/oni.data") -> None:
         indice = obtenir_ou_creer_indice(db)
         import_record = enregistrer_import(db, source.id, row_count, checksum)
         inserted, skipped = enregistrer_observations(db, df, indice.id, import_record.id)
+        db.commit()  # Une seule validation pour toutes les écritures.
+    except Exception:
+        db.rollback()  # Annule aussi les écritures déjà envoyées par flush().
+        raise
     finally:
         db.close()
 
