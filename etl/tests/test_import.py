@@ -75,3 +75,47 @@ def test_doublon_non_reinsere(db_session, mini_csv):
     # On vérifie que le doublon est bien détecté
     assert exists is not None
     assert exists.value == -1.32
+
+def test_transformation_ligne_reutilise_conversion():
+    """La transformation ONI repose sur la fonction de conversion des saisons."""
+    from import_oni import transformer_ligne
+
+    row = pd.Series({"SEAS": "JFM", "YR": 1950, "ANOM": -1.20})
+    obs_date, value = transformer_ligne(row)
+    assert (obs_date.year, obs_date.month, obs_date.day) == (1950, 2, 1)
+    assert value == -1.20
+    assert transformer_ligne(pd.Series({"SEAS": "XYZ", "YR": 1950, "ANOM": 0.5})) is None
+
+
+def test_main_preserve_import_et_anti_doublon(tmp_path, monkeypatch, capsys):
+    """Deux exécutions de main conservent la logique actuelle de réimport."""
+    from sqlalchemy.orm import sessionmaker
+    import import_oni
+
+    filepath = tmp_path / "oni.data"
+    filepath.write_text(
+        "SEAS YR TOTAL ANOM\n"
+        "DJF 1950 25.01 -1.32\n"
+        "JFM 1950 25.36 -1.20\n"
+        "FMA 1950 25.88 -1.12\n",
+        encoding="utf-8",
+    )
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    monkeypatch.setattr(import_oni, "SessionLocal", Session)
+
+    import_oni.main(str(filepath))
+    import_oni.main(str(filepath))
+
+    with Session() as db:
+        assert db.query(Source).filter_by(name="NOAA CPC").count() == 1
+        assert db.query(Indice).filter_by(code="ONI").count() == 1
+        assert db.query(Import).count() == 2
+        assert db.query(Observation).count() == 3
+        assert {obs.date.month for obs in db.query(Observation).all()} == {1, 2, 3}
+
+    output = capsys.readouterr().out
+    assert "Insérées : 3, Ignorées (doublons) : 0" in output
+    assert "Insérées : 0, Ignorées (doublons) : 3" in output
