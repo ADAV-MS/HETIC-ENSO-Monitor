@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { fetchObservations, type ObservationsResponse } from './api/client';
+import Comparison from './components/Comparison';
 import './App.css';
 
 function App() {
@@ -148,6 +149,7 @@ function App() {
           )}
         </>
       )}
+      <Comparison />
     </main>
   );
 }
