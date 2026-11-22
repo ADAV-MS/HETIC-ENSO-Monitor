@@ -6,6 +6,7 @@ export interface ObservationProvenance {
   extracted_at: string | null;
   import_id: number;
   imported_at: string | null;
+  checksum: string | null;
   indice_code: string;
   indice: string;
   unit: string;

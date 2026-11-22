@@ -236,3 +236,65 @@ def test_service_delegue_la_recherche_au_repository(monkeypatch):
     assert resultat.observations == []
     assert resultat.source is None
     assert resultat.extracted_at is None
+
+
+# #32 — Une provenance doit etre liee a l'import de l'observation.
+
+def test_provenance_utilise_date_de_lecture_et_checksum_de_l_import():
+    with TestingSessionLocal() as db:
+        trace = db.query(Import).one()
+        trace.extracted_at = datetime(2026, 11, 21, 10, 12)
+        trace.checksum = "sha256-documente"
+        db.query(Source).one().extracted_at = datetime(2025, 1, 1)
+        db.commit()
+
+    response = client.get("/api/v1/observations?start=2020-01-01&end=2020-01-01")
+    assert response.status_code == 200
+    data = response.json()
+    p = data["observations"][0]["provenance"]
+    assert p["extracted_at"].startswith("2026-11-21T10:12:00")
+    assert p["checksum"] == "sha256-documente"
+    assert p["source"] == "NOAA"
+    assert data["extracted_at"] == p["extracted_at"]
+
+
+def test_melange_imports_meme_source_ne_propose_pas_date_globale_arbitraire():
+    with TestingSessionLocal() as db:
+        premier = db.query(Import).one()
+        premier.extracted_at = datetime(2026, 11, 1, 12)
+        source = db.query(Source).one()
+        indice = db.query(Indice).one()
+        nouveau = Import(
+            source_id=source.id,
+            row_count=1,
+            checksum="sha256-revision",
+            extracted_at=datetime(2026, 11, 22, 9),
+        )
+        db.add(nouveau)
+        db.flush()
+        db.add(Observation(
+            import_id=nouveau.id,
+            index_id=indice.id,
+            date=date(2021, 1, 1),
+            value=1.0,
+        ))
+        db.commit()
+
+    response = client.get("/api/v1/observations?start=2020-12-01&end=2021-01-01")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "NOAA"
+    assert data["indice"] == "ONI"
+    assert data["extracted_at"] is None
+    assert len(data["observations"]) == 2
+    assert data["observations"][0]["provenance"]["extracted_at"].startswith("2026-11-01")
+    assert data["observations"][1]["provenance"]["extracted_at"].startswith("2026-11-22")
+    assert data["observations"][1]["provenance"]["checksum"] == "sha256-revision"
+
+
+def test_import_historique_sans_date_ne_recoit_pas_date_source_inventee():
+    with TestingSessionLocal() as db:
+        assert db.query(Import).one().extracted_at is None
+    response = client.get("/api/v1/observations?start=2020-01-01&end=2020-01-01")
+    assert response.status_code == 200
+    assert response.json()["observations"][0]["provenance"]["extracted_at"] is None

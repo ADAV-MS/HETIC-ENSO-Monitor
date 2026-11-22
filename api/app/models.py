@@ -27,6 +27,8 @@ class Import(Base):
     id = Column(Integer, primary_key=True, index=True)
     source_id = Column(Integer, ForeignKey("sources.id"), nullable=False)
     imported_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    # Moment UTC ou l'ETL a termine la lecture du fichier local (pas son telechargement NOAA).
+    extracted_at = Column(DateTime(timezone=True), nullable=True)
     row_count = Column(Integer, nullable=False)
     checksum = Column(String, nullable=True)
 
