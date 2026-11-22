@@ -298,3 +298,25 @@ def test_import_historique_sans_date_ne_recoit_pas_date_source_inventee():
     response = client.get("/api/v1/observations?start=2020-01-01&end=2020-01-01")
     assert response.status_code == 200
     assert response.json()["observations"][0]["provenance"]["extracted_at"] is None
+
+
+# #33 — Bornes temporelles et paramètres obligatoires.
+def test_filtre_temporel_bornes_inclusives():
+    """start et end sont inclus : une seule journée ne renvoie qu'une observation."""
+    response = client.get("/api/v1/observations?start=2020-03-01&end=2020-03-01")
+    assert response.status_code == 200
+    rows = response.json()["observations"]
+    assert len(rows) == 1
+    assert rows[0]["date"] == "2020-03-01"
+    assert rows[0]["value"] == 0.3
+
+
+def test_filtre_temporel_parametres_obligatoires():
+    """L'API rejette proprement les paramètres manquants, sans requête non filtrée."""
+    for url in (
+        "/api/v1/observations",
+        "/api/v1/observations?start=2020-01-01",
+        "/api/v1/observations?end=2020-12-01",
+    ):
+        response = client.get(url)
+        assert response.status_code == 422
