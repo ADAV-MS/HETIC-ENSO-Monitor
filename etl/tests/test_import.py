@@ -261,3 +261,66 @@ def test_repositories_ne_valident_pas_la_transaction(sessions_tracees):
         assert verification.query(Indice).count() == 0
         assert verification.query(Import).count() == 0
         assert verification.query(Observation).count() == 0
+
+
+def test_chemin_noaa_par_defaut(monkeypatch):
+    """Sans variable d'environnement, le chemin Docker historique est conserve."""
+    from config import obtenir_chemin_fichier_oni
+
+    monkeypatch.delenv("NOAA_ONI_FILEPATH", raising=False)
+    assert obtenir_chemin_fichier_oni() == "/app/data/oni.data"
+
+
+def test_chemin_noaa_personnalise_et_env_vide(monkeypatch, tmp_path):
+    """La variable est lue a l'execution ; une valeur vide utilise le defaut."""
+    from config import obtenir_chemin_fichier_oni
+
+    alternative = tmp_path / "oni-alternative.data"
+    monkeypatch.setenv("NOAA_ONI_FILEPATH", str(alternative))
+    assert obtenir_chemin_fichier_oni() == str(alternative)
+
+    monkeypatch.setenv("NOAA_ONI_FILEPATH", "")
+    assert obtenir_chemin_fichier_oni() == "/app/data/oni.data"
+
+
+def test_main_charge_le_chemin_noaa_depuis_env(tmp_path, monkeypatch, sessions_tracees):
+    """main() sans argument charge le fichier defini par la configuration."""
+    import import_oni
+
+    SessionTest, sessions = sessions_tracees
+    alternative = tmp_path / "oni-alternative.data"
+    alternative.write_text(
+        "SEAS YR TOTAL ANOM\n"
+        "DJF 1998 25.01 1.40\n"
+        "JFM 1998 25.36 1.20\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NOAA_ONI_FILEPATH", str(alternative))
+
+    import_oni.main()
+
+    assert len(sessions) == 1
+    assert sessions[0].nb_commits == 1
+    assert sessions[0].est_fermee
+    with SessionTest() as db:
+        observations = db.query(Observation).order_by(Observation.date).all()
+        assert [(obs.date.year, obs.date.month, obs.value) for obs in observations] == [
+            (1998, 1, 1.40), (1998, 2, 1.20)
+        ]
+
+
+def test_main_argument_explicite_prioritaire_sur_env(tmp_path, monkeypatch, sessions_tracees):
+    """L'argument filepath historique reste prioritaire pour les appels existants."""
+    import import_oni
+
+    SessionTest, _ = sessions_tracees
+    fichier = tmp_path / "oni-explicite.data"
+    fichier.write_text("SEAS YR TOTAL ANOM\nDJF 2001 25.01 -0.42\n", encoding="utf-8")
+    monkeypatch.setenv("NOAA_ONI_FILEPATH", str(tmp_path / "inexistant.data"))
+
+    import_oni.main(str(fichier))
+
+    with SessionTest() as db:
+        observations = db.query(Observation).all()
+        assert len(observations) == 1
+        assert (observations[0].date.year, observations[0].value) == (2001, -0.42)

@@ -7,6 +7,7 @@ from datetime import datetime, date
 # Lien avec l'API pour utiliser les mêmes modèles
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'api')))
 from app.db import SessionLocal
+from config import obtenir_chemin_fichier_oni
 from repositories import (
     ajouter_observation,
     enregistrer_import,
@@ -74,8 +75,11 @@ def enregistrer_observations(db, df: pd.DataFrame, indice_id: int, import_id: in
     return inserted, skipped
 
 
-def main(filepath: str = "/app/data/oni.data") -> None:
-    """Orchestre la lecture, la transformation et la persistance de l'import ONI."""
+def main(filepath: str | None = None) -> None:
+    """Orchestre l'import ONI, avec un chemin explicite ou configuré."""
+    if filepath is None:
+        filepath = obtenir_chemin_fichier_oni()
+
     checksum = calculer_checksum(filepath)
     df = lire_donnees_oni(filepath)
     row_count = len(df)
