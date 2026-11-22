@@ -119,3 +119,110 @@ def test_main_preserve_import_et_anti_doublon(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "Insérées : 3, Ignorées (doublons) : 0" in output
     assert "Insérées : 0, Ignorées (doublons) : 3" in output
+
+
+@pytest.fixture
+def sessions_tracees(monkeypatch):
+    """Base isolée et session instrumentée pour vérifier transaction et fermeture."""
+    import import_oni
+    from sqlalchemy.orm import Session, sessionmaker
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    class SessionTracee(Session):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.nb_commits = 0
+            self.nb_rollbacks = 0
+            self.est_fermee = False
+
+        def commit(self):
+            self.nb_commits += 1
+            return super().commit()
+
+        def rollback(self):
+            self.nb_rollbacks += 1
+            return super().rollback()
+
+        def close(self):
+            self.est_fermee = True
+            return super().close()
+
+    SessionTest = sessionmaker(bind=engine, class_=SessionTracee, autoflush=False)
+    sessions = []
+
+    def creer_session():
+        session = SessionTest()
+        sessions.append(session)
+        return session
+
+    monkeypatch.setattr(import_oni, "SessionLocal", creer_session)
+    yield SessionTest, sessions
+    engine.dispose()
+
+
+def test_main_valide_une_seule_transaction(tmp_path, sessions_tracees):
+    """Un import réussi valide les quatre tables en un seul commit."""
+    import import_oni
+
+    SessionTest, sessions = sessions_tracees
+    filepath = tmp_path / "oni.data"
+    filepath.write_text(
+        "SEAS YR TOTAL ANOM\n"
+        "DJF 1950 25.01 -1.32\n"
+        "JFM 1950 25.36 -1.20\n",
+        encoding="utf-8",
+    )
+
+    import_oni.main(str(filepath))
+
+    assert len(sessions) == 1
+    assert sessions[0].nb_commits == 1
+    assert sessions[0].nb_rollbacks == 0
+    assert sessions[0].est_fermee
+
+    with SessionTest() as db:
+        assert db.query(Source).count() == 1
+        assert db.query(Indice).count() == 1
+        assert db.query(Import).count() == 1
+        assert db.query(Observation).count() == 2
+
+
+def test_main_annule_import_apres_echec_et_ferme_session(
+    tmp_path, monkeypatch, sessions_tracees
+):
+    """Même après un flush SQL, une exception annule toutes les écritures."""
+    import import_oni
+
+    SessionTest, sessions = sessions_tracees
+    filepath = tmp_path / "oni.data"
+    filepath.write_text(
+        "SEAS YR TOTAL ANOM\n"
+        "DJF 1950 25.01 -1.32\n"
+        "JFM 1950 25.36 -1.20\n",
+        encoding="utf-8",
+    )
+
+    enregistrer_original = import_oni.enregistrer_observations
+
+    def planter_apres_insertion(db, df, indice_id, import_id):
+        enregistrer_original(db, df, indice_id, import_id)
+        db.flush()  # Force l'envoi des INSERT dans la transaction non validée.
+        raise RuntimeError("Échec simulé avant le commit")
+
+    monkeypatch.setattr(import_oni, "enregistrer_observations", planter_apres_insertion)
+
+    with pytest.raises(RuntimeError, match="Échec simulé"):
+        import_oni.main(str(filepath))
+
+    assert len(sessions) == 1
+    assert sessions[0].nb_commits == 0
+    assert sessions[0].nb_rollbacks == 1
+    assert sessions[0].est_fermee
+
+    with SessionTest() as db:
+        assert db.query(Source).count() == 0
+        assert db.query(Indice).count() == 0
+        assert db.query(Import).count() == 0
+        assert db.query(Observation).count() == 0
