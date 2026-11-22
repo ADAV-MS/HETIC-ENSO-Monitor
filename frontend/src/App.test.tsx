@@ -2,6 +2,9 @@ import { render, screen, waitFor, fireEvent, within } from '@testing-library/rea
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import App from './App';
 
+// Isole les tests de filtrage des requêtes déclenchées par Comparison.
+vi.mock('./components/Comparison', () => ({ default: () => null }));
+
 const mockFetch = vi.fn();
 
 function buildResponse(observations: { date: string; value: number }[]) {
@@ -99,7 +102,8 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /actualiser/i }));
 
     await waitFor(() => {
-      expect(within(mainTable).getByText(/2\.60\s*°C/)).toBeInTheDocument();
+      const updatedTable = screen.getByRole('table', { name: /Statistiques sur la période/i });
+      expect(within(updatedTable).getByText(/2\.60\s*°C/)).toBeInTheDocument();
     });
   });
 });
@@ -121,5 +125,58 @@ describe('provenance des observations', () => {
     render(<App />);
     expect(await screen.findByText(/Plusieurs sources ou indices/i)).toBeInTheDocument();
     expect(screen.queryByText(/Invalid Date/i)).not.toBeInTheDocument();
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+describe('états de chargement et d’erreur', () => {
+  it('cache les anciennes données pendant le chargement et en cas d’erreur, puis permet de réessayer', async () => {
+    const pending = deferred<{ ok: boolean; json: () => Promise<ReturnType<typeof buildResponse>> }>();
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => buildResponse([{ date: '1997-01-01', value: 1.5 }]) })
+      .mockImplementationOnce(() => pending.promise)
+      .mockResolvedValueOnce({ ok: true, json: async () => buildResponse([{ date: '2015-01-01', value: 2.5 }]) });
+
+    render(<App />);
+    expect(await screen.findByRole('table', { name: /Statistiques sur la période/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Date de début/i), { target: { value: '2015-01-01' } });
+    fireEvent.change(screen.getByLabelText(/Date de fin/i), { target: { value: '2016-12-31' } });
+    // Editing the form must not change the period on the already loaded chart.
+    expect(screen.getByRole('img', { name: /1997-01-01 à 1998-12-31/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /actualiser/i }));
+    expect(screen.getByRole('status')).toHaveTextContent('2015-01-01');
+    expect(screen.queryByRole('table', { name: /Statistiques sur la période/i })).not.toBeInTheDocument();
+    pending.reject(new Error('Service temporairement indisponible'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Service temporairement indisponible');
+    expect(screen.queryByRole('img', { name: /Graphique de l'indice ONI/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Réessayer/i }));
+    expect(await screen.findByRole('img', { name: /2015-01-01 à 2016-12-31/ })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('affiche un état vide sans graphique pour une période sans observation', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => buildResponse([]) });
+    render(<App />);
+    expect(await screen.findByText('Aucune observation pour cette période.')).toBeInTheDocument();
+    expect(screen.getByText(/Période affichée/)).toHaveTextContent('1997-01-01 au 1998-12-31');
+    expect(screen.queryByRole('img', { name: /Graphique de l'indice ONI/ })).not.toBeInTheDocument();
+  });
+
+  it('refuse une période invalide sans afficher les anciennes données', async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => buildResponse([{ date: '1997-01-01', value: 1.5 }]) });
+    render(<App />);
+    await screen.findByRole('table', { name: /Statistiques sur la période/i });
+    fireEvent.change(screen.getByLabelText(/Date de début/i), { target: { value: '2018-01-01' } });
+    fireEvent.change(screen.getByLabelText(/Date de fin/i), { target: { value: '2016-12-31' } });
+    fireEvent.click(screen.getByRole('button', { name: /actualiser/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent('La date de début doit être antérieure');
+    expect(screen.queryByRole('table', { name: /Statistiques sur la période/i })).not.toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
