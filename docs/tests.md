@@ -15,7 +15,7 @@ cd ..
 
 Les suites Python utilisent **SQLite en mémoire** pour isoler les tests ; elles ne
 valident pas à elles seules l'exécution réelle de migrations sur PostgreSQL.
-Pour la base de développement, appliquer séparément la migration :
+Pour la base de développement, Compose applique automatiquement les migrations au démarrage de `api`. Pour les vérifier ou les rejouer :
 
 ```powershell
 docker compose run --rm api alembic upgrade head
@@ -35,14 +35,15 @@ docker compose run --rm api alembic current
 | Dates invalides/inversées | `test_observations_invalid_dates` | HTTP 422 |
 | Borne de début/fin incluse | `test_filtre_temporel_bornes_inclusives` | Une observation exactement sur la borne |
 | Dates manquantes | `test_filtre_temporel_parametres_obligatoires` | HTTP 422 |
+| Preflight CORS | `test_cors_autorise_origine_configuree` | HTTP 200 et bonne origine autorisée |
 
 ## Suites de tests
 
 - **ETL : 17 tests** après l'issue #32, notamment lecture du fichier NOAA,
   checksum, transactions, configuration et révisions.
-- **API : 14 tests** après l'issue #33, notamment filtres, provenances,
+- **API : 15 tests** après l'issue #35, notamment filtres, provenances,
   métadonnées absentes et séparation service/repository.
-- **Frontend : 3 tests**, dont filtre de période et provenance mixte.
+- **Frontend : 6 tests** après l'issue #34, dont les états chargement/erreur, filtre de période et provenance mixte.
 
 Ces nombres décrivent les tests présents dans le dépôt ; les commandes ci-dessus
 restent la source de vérité pour les exécutions locales.
@@ -68,7 +69,7 @@ restent la source de vérité pour les exécutions locales.
 
 **Commande :** `cd frontend && npm test`
 
-**Résultat :**
+**Résultat historique de l'issue #16 (avant #34) :**
 ```text
  ✓ src/App.test.tsx (2 tests) 388ms
    ✓ App (2)
@@ -86,4 +87,4 @@ restent la source de vérité pour les exécutions locales.
 
 ## 5. Validation croisée (Frontend + API)
 
-En complément de la validation Pydantic côté API (issue #9), le frontend vérifie `start <= end` avant tout appel réseau. Si `start > end`, un message d'erreur s'affiche instantanément et le bouton « Réessayer » est proposé. Aucun appel API inutile n'est effectué.
+En complément de la validation Pydantic côté API (issue #9), le frontend vérifie `start <= end` avant tout appel réseau. Si `start > end`, un message d'erreur s'affiche instantanément sans afficher les anciennes données. Le bouton « Réessayer » n'est pas proposé pour une période invalide. Aucun appel API inutile n'est effectué.
