@@ -1,90 +1,85 @@
-# Tests et preuves de vérification — ENSO Monitor
+# Tests et vérifications — ENSO Monitor
 
-## Exécuter les tests (#33)
+## Périmètre, exécution et résultats
 
-Depuis la racine du dépôt, dans PowerShell :
+Depuis la racine du dépôt, dans **PowerShell**, après avoir configuré `.env` :
 
 ```powershell
 docker compose run --rm etl pytest tests -v
 docker compose run --rm api pytest tests -v
 cd frontend
+npm ci
 npm test
+npm run lint
 npm run build
 cd ..
 ```
 
-Les suites Python utilisent **SQLite en mémoire** pour isoler les tests ; elles ne
-valident pas à elles seules l'exécution réelle de migrations sur PostgreSQL.
-Pour la base de développement, Compose applique automatiquement les migrations au démarrage de `api`. Pour les vérifier ou les rejouer :
+| Suite | Nombre de tests constaté le 22/11/2026 | Vérifie notamment |
+|---|---:|---|
+| ETL / pytest | **17/17** | Conversion, configuration NOAA, réimport, révision, rollback, fermeture de session |
+| API / pytest | **15/15** | Dates, HTTP 422, provenance, absence de source, architecture service/repository, CORS |
+| React / Vitest | **6/6** | Changement de période, métadonnées mixtes, chargement, erreur/réessai, résultat vide, saisie invalide |
+
+**Total constaté : 38 tests automatisés réussis.** `npm run lint` et `npm run build` ont également réussi lors de cette vérification. Ces chiffres sont un **instantané des exécutions communiquées**, et non une garantie pour une installation future : relancer les commandes pour obtenir le résultat de la version courante.
+
+Les tests Python utilisent **SQLite en mémoire**, avec des fixtures isolées ; ils ne prouvent pas à eux seuls que les migrations ou les accès PostgreSQL fonctionnent. Les tests frontend utilisent des mocks réseau : ils ne prouvent pas à eux seuls l'intégration navigateur/API.
+
+## Matrice de non-régression
+
+| Risque | Test correspondant | Comportement attendu |
+|---|---|---|
+| Conversion saison ONI / saison inconnue | `test_saison_valide`, `test_saison_invalide` | Date correcte / valeur rejetée |
+| Doublons lors d'un réimport | `test_reimport_identique_conserve_identifiants_et_ne_duplique_pas` | Une observation par `(indice, date)` et liens inchangés si valeur identique |
+| Révision NOAA | `test_reimport_noaa_revision_et_observation_inchangee` | Valeur corrigée, pas de doublon |
+| Échec après écriture / transaction | `test_main_annule_import_apres_echec_et_ferme_session` | Rollback et session fermée |
+| Échec après révision | `test_revision_rollback_restitue_ancienne_valeur` | Ancienne valeur et provenance restaurées |
+| Configuration NOAA | `test_chemin_noaa_par_defaut`, `test_main_charge_le_chemin_noaa_depuis_env` | Défaut et chemin configuré respectés |
+| Date de lecture et SHA-256 | `test_import_trace_la_vraie_lecture_locale_et_checksum` | Date locale ETL et checksum liés à l'import |
+| Source absente | `test_une_base_sans_source_ne_provoque_pas_de_500` | HTTP 200, liste vide, métadonnées nulles |
+| Plusieurs provenances | `test_plusieurs_sources_sans_provenance_arbitraire` | Métadonnées propres à chaque observation |
+| Filtres temporels et entrées invalides | `test_observations_invalid_dates`, `test_filtre_temporel_bornes_inclusives`, `test_filtre_temporel_parametres_obligatoires` | HTTP 422 pour erreur ; bornes inclusives |
+| CORS navigateur | `test_cors_autorise_origine_configuree` | Preflight HTTP 200, origine correcte |
+| Changement de période frontend | `App.test.tsx` — « appelle fetch avec les nouvelles dates » et « met à jour les valeurs affichées » | L'URL et la table suivent la période choisie |
+| Erreur / rechargement / résultat vide | `App.test.tsx` — groupe « états de chargement et d’erreur » | Pas de données obsolètes, erreur accessible, nouvelle tentative possible |
+
+## Vérifier la pile réelle PostgreSQL / HTTP
+
+Une installation locale complète nécessite Docker Desktop et le fichier NOAA téléchargé dans `./data/oni.data` ; voir le [guide de démarrage](../README.md#démarrer-depuis-un-clone-vierge-powershell--docker-desktop).
 
 ```powershell
-docker compose run --rm api alembic upgrade head
+docker compose config --quiet
+docker compose up --build -d
+docker compose build etl
+docker compose ps
 docker compose run --rm api alembic current
+docker compose run --rm etl python import_oni.py
+Invoke-RestMethod "http://localhost:8000/api/v1/health"
+$r = Invoke-RestMethod "http://localhost:8000/api/v1/observations?start=1997-01-01&end=1998-12-31"
+$r.observations.Count
 ```
 
-## Couverture des risques ETL et API (#33)
+Attendus : PostgreSQL et API `healthy` ; frontend démarré ; révision Alembic `d0a9b32c5c91 (head)` ; healthcheck `status: ok` ; nombre d'observations strictement positif **après import**. Sur la base de développement vérifiée pour #35, l'API renvoyait **24 observations** pour la fenêtre 1997–1998. Ce n'est **pas un test de création de volume vierge** : pour prouver une installation entièrement neuve, relancer la procédure sur un volume de test distinct, sans supprimer les données de travail.
 
-| Risque | Test(s) existant(s) | Attendu |
-|---|---|---|
-| Réimport du même fichier | `test_reimport_identique_conserve_identifiants_et_ne_duplique_pas` | Une seule observation par indice/date ; nouveaux imports tracés |
-| Révision des valeurs NOAA | `test_reimport_noaa_revision_et_observation_inchangee` | Valeur mise à jour sans doublon |
-| Échec en cours d'import | `test_main_annule_import_apres_echec_et_ferme_session` | Rollback, session fermée, aucune écriture partielle |
-| Échec après révision | `test_revision_rollback_restitue_ancienne_valeur` | Ancienne valeur et provenance restaurées |
-| Absence de source | `test_une_base_sans_source_ne_provoque_pas_de_500` | HTTP 200, observations vides, métadonnées nulles |
-| Plusieurs sources | `test_plusieurs_sources_sans_provenance_arbitraire` | Provenance propre à chaque observation |
-| Dates invalides/inversées | `test_observations_invalid_dates` | HTTP 422 |
-| Borne de début/fin incluse | `test_filtre_temporel_bornes_inclusives` | Une observation exactement sur la borne |
-| Dates manquantes | `test_filtre_temporel_parametres_obligatoires` | HTTP 422 |
-| Preflight CORS | `test_cors_autorise_origine_configuree` | HTTP 200 et bonne origine autorisée |
+Tester le CORS réel (en plus du test unitaire) :
 
-## Suites de tests
-
-- **ETL : 17 tests** après l'issue #32, notamment lecture du fichier NOAA,
-  checksum, transactions, configuration et révisions.
-- **API : 15 tests** après l'issue #35, notamment filtres, provenances,
-  métadonnées absentes et séparation service/repository.
-- **Frontend : 6 tests** après l'issue #34, dont les états chargement/erreur, filtre de période et provenance mixte.
-
-Ces nombres décrivent les tests présents dans le dépôt ; les commandes ci-dessus
-restent la source de vérité pour les exécutions locales.
-
-## 3. Accessibilité (Issue #14)
-
-**Tests manuels effectués :**
-
-- **Navigation clavier** : Tab depuis la barre d'adresse → "Date de début" → "Date de fin" → "Actualiser". Le focus est toujours visible (outline bleu) et l'ordre est logique. Aucun piège au clavier.
-- **Lecteur d'écran** : Le conteneur du graphique a `role="img"` et `aria-label="Graphique de l'indice ONI de 1997-01-01 à 1998-12-31"`. Le tableau récapitulatif est lu avec son caption et ses en-têtes.
-- **Contraste** (vérifié avec WebAIM Contrast Checker) :
-  - `#000000` sur `#ffffff` : **21:1** (WCAG AAA)
-  - `#ffffff` sur `#004080` : **9:1** (WCAG AAA)
-  - `#333333` sur `#ffffff` : **12.6:1** (WCAG AAA)
-- **Skip link** : Au premier Tab, un lien « Aller au contenu » devient visible et permet de sauter directement au contenu principal.
-
-**Audit automatisé :**
-
-- **Outil** : axe DevTools (extension navigateur)
-- **Résultat** : **0 problème automatique détecté** sur la page.
-
-## 4. Test Frontend (Issue #16)
-
-**Commande :** `cd frontend && npm test`
-
-**Résultat historique de l'issue #16 (avant #34) :**
-```text
- ✓ src/App.test.tsx (2 tests) 388ms
-   ✓ App (2)
-     ✓ appelle fetch avec les nouvelles dates après changement de période 306ms
-     ✓ met à jour les valeurs affichées après changement de période 79ms
-
- Test Files  1 passed (1)
-      Tests  2 passed (2)
+```powershell
+curl.exe -i -X OPTIONS "http://localhost:8000/api/v1/observations" -H "Origin: http://localhost:5173" -H "Access-Control-Request-Method: GET"
 ```
 
-**Ce qui est testé :**
-- Après changement des champs `start` / `end` et clic sur « Actualiser », `fetch` est rappelé avec les nouvelles dates dans l'URL.
-- La table principale « Statistiques sur la période » affiche les nouvelles valeurs (max passe de 2.00 °C à 2.60 °C).
-*(Note : `fetch` est mocké via `vi.stubGlobal`, aucun appel réseau réel. `ResizeObserver` est polyfillé pour Recharts, `cleanup()` est appelé entre chaque test, et `within(mainTable)` isole la table principale des tables de comparaison).*
+Attendu : HTTP 200 et `access-control-allow-origin: http://localhost:5173`.
 
-## 5. Validation croisée (Frontend + API)
+Ouvrir <http://localhost:5173> : vérifier la courbe, la sélection de dates et les états de chargement/erreur. Les tests automatisés ne remplacent pas cette vérification visuelle et clavier.
 
-En complément de la validation Pydantic côté API (issue #9), le frontend vérifie `start <= end` avant tout appel réseau. Si `start > end`, un message d'erreur s'affiche instantanément sans afficher les anciennes données. Le bouton « Réessayer » n'est pas proposé pour une période invalide. Aucun appel API inutile n'est effectué.
+## Accessibilité : périmètre de vérification
+
+L'interface utilise notamment un lien d'évitement (« Aller au contenu »), des labels de formulaire, un graphique annoncé avec `role="img"` et `aria-label`, un tableau avec en-têtes et des erreurs `role="alert"`.
+
+Le précédent journal de développement (issue #14) rapporte une navigation au clavier et un contrôle axe DevTools sans problème automatique détecté. Il s'agit d'un **résultat historique**, non d'un audit axe reproduit dans le cadre de #36. Pour la soutenance, refaire une vérification manuelle clavier/focus/lecteur d'écran sur la version actuelle et conserver une capture ou un compte rendu daté.
+
+## Limites de la couverture
+
+- Les tests API et ETL sont isolés sur SQLite ; vérifier PostgreSQL par le parcours HTTP ci-dessus.
+- Vitest simule les réponses API ; il ne constitue pas un test E2E navigateur complet.
+- Le contrôle de taille du bundle Vite est un avertissement de performance, pas un échec du build.
+- Les valeurs ONI récentes sont révisables ; les anciennes valeurs écrasées ne sont pas conservées dans la table `observations` (voir [provenance NOAA](sources-noaa.md)).

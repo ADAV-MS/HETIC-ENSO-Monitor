@@ -1,95 +1,121 @@
 # ENSO Monitor
 
-Application d'analyse des épisodes ENSO à partir de l'indice ONI du NOAA CPC.
+Application individuelle HETIC WEB3 d'exploration de l'indice **ONI (Oceanic Niño Index)** de la NOAA CPC : import de mesures authentiques, consultation par période, courbe interactive et comparaison prudente des épisodes **1997–1998** et **2015–2016**.
 
-## Démarrage reproductible - Docker Compose (issue #35)
+## Périmètre et limites
 
-**Prérequis :** Git, Docker Desktop avec Compose v2 et PowerShell. Le fichier de
-mesures NOAA n'est pas versionné dans Git ; il est téléchargé à chaque installation.
+- **ETL** Python/Pandas : lecture d'un fichier ONI local, validation des saisons, conversion en dates, contrôle des doublons et mise à jour des valeurs révisées.
+- **API** FastAPI `/api/v1` : observations filtrées par `start` et `end` (format `YYYY-MM-DD`), schémas Pydantic, provenance par observation et documentation OpenAPI.
+- **Frontend** React/TypeScript/Vite : filtre de période, graphique, états de chargement/erreur/absence de données, comparaison de deux fenêtres fixes.
+- **Base** PostgreSQL 16, SQLAlchemy et Alembic. Les tests unitaires Python utilisent SQLite en mémoire ; ils ne remplacent pas un test d'intégration PostgreSQL.
 
-Depuis un clone vierge, ouvrir PowerShell :
+L'ONI représente des anomalies de température de surface de la mer en région Niño 3.4 : il ne mesure pas directement les impacts climatiques et ne constitue **pas une prévision**. La comparaison est descriptive ; elle ne permet pas de conclure à une causalité locale.
+
+## Démarrer depuis un clone vierge (PowerShell + Docker Desktop)
+
+**Prérequis :** Git, Docker Desktop avec Compose v2 et PowerShell. Le téléchargement du fichier NOAA est volontairement manuel ; les données et les secrets ne sont pas versionnés.
 
 ```powershell
 git clone https://github.com/ADAV-MS/HETIC-ENSO-Monitor.git
 cd HETIC-ENSO-Monitor
 Copy-Item .env.example .env
-# Éditer .env : remplacer POSTGRES_PASSWORD=change_me par un mot de passe local.
+# Modifier POSTGRES_PASSWORD dans .env avant le premier démarrage.
 New-Item -ItemType Directory -Force .\data | Out-Null
 Invoke-WebRequest -Uri "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt" -OutFile ".\data\oni.data"
 Get-Content .\data\oni.data -TotalCount 2
 ```
 
-La première ligne doit commencer par `SEAS  YR   TOTAL   ANOM`, et non par du HTML.
-La source officielle est [NOAA CPC ONI](https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt).
-Le téléchargement est manuel ; la date `extracted_at` en base est la date de **lecture
-locale par l'ETL**, pas la date de téléchargement NOAA.
+Le fichier doit commencer par un en-tête contenant `SEAS`, `YR`, `TOTAL`, `ANOM` (et non du HTML). Source : [NOAA CPC — ONI](https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt).
 
 ```powershell
 docker compose config --quiet
 docker compose up --build -d
-docker compose build etl  # Le profil tools ne se construit pas avec up.
+docker compose build etl
 docker compose ps
-# L'API applique alembic upgrade head automatiquement avant son démarrage.
+# L'API applique « alembic upgrade head » avant Uvicorn.
+docker compose run --rm api alembic current
 docker compose run --rm etl python import_oni.py
 ```
 
-Ouvrir :
+**Adresses locales :** interface <http://localhost:5173> ; documentation API <http://localhost:8000/docs> ; santé <http://localhost:8000/api/v1/health>. Ouvrir l'interface et vérifier le graphique puis modifier les dates et sélectionner « Actualiser ».
 
-- **Application :** http://localhost:5173
-- **API Swagger :** http://localhost:8000/docs
-- **Healthcheck :** http://localhost:8000/api/v1/health
-
-Test d'intégration **avec PostgreSQL réel**, distinct des tests SQLite :
+Vérifier également la **vraie pile PostgreSQL** (les tests unitaires utilisent SQLite) :
 
 ```powershell
 Invoke-RestMethod "http://localhost:8000/api/v1/health"
 $r = Invoke-RestMethod "http://localhost:8000/api/v1/observations?start=1997-01-01&end=1998-12-31"
-$r.observations.Count  # Doit être supérieur à zéro après l'import.
+$r.observations.Count # Doit être > 0 après l'import.
 docker compose run --rm api alembic current
 ```
 
-La révision Alembic attendue est `d0a9b32c5c91 (head)`. Pour contrôler CORS :
+La migration attendue à cette version est `d0a9b32c5c91 (head)` ; elle ajoute l'horodatage des imports. Le fonctionnement a été vérifié localement le 22 novembre 2026 avec **24 observations** pour 1997–1998 dans la base de développement ; le nombre dépend du contenu effectivement importé.
+
+## Configuration
+
+Créer `.env` depuis `.env.example` :
+
+| Variable | Rôle | Valeur locale de référence |
+|---|---|---|
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Accès PostgreSQL | `enso`, **à remplacer**, `enso` |
+| `POSTGRES_PORT` | Port PostgreSQL publié sur `127.0.0.1` | `5432` |
+| `API_PORT` | Port HTTP de l'API sur `127.0.0.1` | `8000` |
+| `FRONTEND_PORT` | Port HTTP du frontend sur `127.0.0.1` | `5173` |
+| `VITE_API_URL` | Adresse API visible depuis le navigateur, compilée au build | `http://localhost:8000/api/v1` |
+| `ALLOWED_ORIGINS` | Origines autorisées par CORS, séparées par des virgules | `http://localhost:5173,http://127.0.0.1:5173` |
+| `NOAA_ONI_FILEPATH` | Chemin du fichier **dans le conteneur ETL** | `/app/data/oni.data` si variable vide |
+
+Les conteneurs API et ETL se connectent à `db:5432` sur le réseau Compose. Ne pas utiliser `http://api:8000` dans `VITE_API_URL` : le navigateur ne résout pas ce nom interne Docker. Après modification de `API_PORT` ou `VITE_API_URL`, adapter les deux valeurs et reconstruire le frontend : `docker compose up --build -d frontend`. Après modification de `FRONTEND_PORT`, mettre `ALLOWED_ORIGINS` à jour.
+
+`./data` est monté dans le conteneur ETL sous `/app/data`. Pour charger un autre fichier :
 
 ```powershell
-curl.exe -i -X OPTIONS "http://localhost:8000/api/v1/observations" -H "Origin: http://localhost:5173" -H "Access-Control-Request-Method: GET"
+docker compose run --rm -e NOAA_ONI_FILEPATH=/app/data/oni-alternative.data etl python import_oni.py
 ```
 
-Le résultat doit contenir un code HTTP `200` et
-`access-control-allow-origin: http://localhost:5173`.
+Ce fichier doit auparavant exister dans `./data`. Un appel explicite `main(filepath)` est prioritaire sur la variable d'environnement. Sans conteneur ETL, Python ne charge **pas automatiquement** le fichier `.env` de Compose ; il faut définir les variables dans son environnement d'exécution.
 
-### Configuration et commandes utiles
-
-| Variable `.env` | Usage | Défaut local |
-|---|---|---|
-| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Identifiants de la base | `enso` / à changer / `enso` |
-| `POSTGRES_PORT` | Port exposé sur l'hôte uniquement | `5432` |
-| `API_PORT` | Port API exposé sur l'hôte | `8000` |
-| `FRONTEND_PORT` | Port du site web exposé sur l'hôte | `5173` |
-| `VITE_API_URL` | URL API **vue du navigateur** ; intégrée au build frontend | `http://localhost:8000/api/v1` |
-| `ALLOWED_ORIGINS` | Origines CORS autorisées (liste séparée par des virgules) | `http://localhost:5173,http://127.0.0.1:5173` |
-| `NOAA_ONI_FILEPATH` | Chemin du fichier **dans le conteneur ETL** | `/app/data/oni.data` si vide |
-
-Les conteneurs API et ETL utilisent toujours `db:5432` pour PostgreSQL.
-Si `API_PORT` change, adapter également `VITE_API_URL` et reconstruire le frontend
-(`docker compose up --build -d frontend`). Si `FRONTEND_PORT` change, adapter
-`ALLOWED_ORIGINS`. Ne jamais utiliser `http://api:8000` comme URL Vite : cette
-adresse Docker n'est pas accessible depuis le navigateur de l'utilisateur.
-
-Pour voir les erreurs ou relancer l'import :
+Pour consulter les journaux et arrêter les services :
 
 ```powershell
 docker compose logs --tail 100 db api frontend
-docker compose run --rm api alembic upgrade head
-docker compose run --rm etl python import_oni.py
-docker compose down  # Conserve les données du volume PostgreSQL.
+docker compose down
 ```
 
-`docker compose down -v` **supprime définitivement le volume PostgreSQL** :
-ne l'utiliser que pour un reset volontaire de la base locale. Changer le mot
-de passe après la première initialisation ne modifie pas le mot de passe déjà
-stocké dans ce volume.
+`docker compose down` conserve le volume PostgreSQL. **Ne pas utiliser `docker compose down -v`** sauf pour effacer volontairement la base locale ; modifier un mot de passe dans `.env` après l'initialisation du volume ne change pas celui qui y est déjà enregistré.
 
-Tests automatisés :
+## Architecture et décisions de refactoring (milestone J4.5)
+
+```text
+Navigateur → React / Vite (Nginx dans Docker)
+                 │ GET /api/v1/observations?start=...&end=...
+                 ▼
+             FastAPI (route → service → repository)
+                 │ SQLAlchemy
+                 ▼
+             PostgreSQL
+                 ▲
+      ETL Python (orchestration → fonctions de transformation
+                  → repositories SQLAlchemy)
+                 ▲
+           Fichier NOAA local
+```
+
+- **ETL (`etl/import_oni.py`) :** `main()` coordonne lecture, transformation et import. `convertir_saison_en_date()` centralise la conversion ; `etl/repositories.py` contient les accès SQL. Une transaction unique est validée à la fin par `commit()` ; `rollback()` annule les écritures en cas d'échec et la session est toujours fermée. Les repositories n'appellent pas `commit()`.
+- **API (`api/app/routes/`, `services/`, `repositories/`) :** les routes valident et délèguent ; le service assemble la réponse et les métadonnées ; le repository filtre les observations par dates et charge les relations. La provenance suit `Observation → Import → Source` et `Observation → Indice` : aucune source arbitraire n'est sélectionnée via `.first()`.
+- **Schéma (`api/app/models.py`, `api/alembic/`) :** modèles `Source`, `Indice`, `Import`, `Observation` et migrations reproductibles. L'unicité `(index_id, date)` évite les doublons.
+- **Frontend (`frontend/src/App.tsx`) :** périodes saisie et affichée distinctes ; un échec ou un chargement ne présente pas une ancienne courbe comme actuelle. Le composant `Comparison` utilise deux fenêtres historiques fixes.
+
+Ces choix privilégient une architecture explicable, testable et adaptée au MVP, sans multiplier les couches ou fonctionnalités facultatives. Les repositories isolent les requêtes ; ils ne prétendent pas constituer une abstraction générique de stockage.
+
+## Source NOAA, horodatage et révisions
+
+La série utilisée est l'ONI NOAA CPC : [description et limites scientifiques](docs/sources-noaa.md). L'ETL lit un **fichier local**, pas une ressource téléchargée automatiquement. `Import.extracted_at` correspond à la **lecture du fichier par l'ETL en UTC** ; ce n'est ni la date de publication NOAA ni la date du téléchargement manuel.
+
+Chaque exécution produit un enregistrement d'import avec `row_count`, `checksum` SHA-256, `imported_at` et `extracted_at` (l'horodatage est `NULL` pour les imports historiques dont la date exacte est inconnue). Un réimport identique n'insère pas de doublon et conserve les liens d'origine ; une valeur corrigée est mise à jour et associée au nouvel import. Les anciennes valeurs écrasées ne sont **pas historisées** : conserver les fichiers originaux est nécessaire pour une reconstitution complète.
+
+## Tests et qualité
+
+Depuis la racine, exécuter :
 
 ```powershell
 docker compose run --rm etl pytest tests -v
@@ -102,109 +128,12 @@ npm run build
 cd ..
 ```
 
-Les tests Python utilisent SQLite en mémoire. Le smoke test HTTP ci-dessus
-vérifie en plus la connexion à PostgreSQL et l'intégration de la pile.
+Au 22 novembre 2026, les validations locales rapportées pour l'issue #35 sont **17 tests ETL, 15 tests API et 6 tests frontend réussis**, avec lint et build frontend réussis. Les suites Python utilisent SQLite en mémoire ; compléter par le test HTTP de la pile PostgreSQL indiqué ci-dessus. Détails et scénarios : [docs/tests.md](docs/tests.md).
 
-### Alternative frontend hors Docker
+Le build Vite peut avertir que le bundle JavaScript dépasse 500 Ko ; ce warning de taille n'empêche pas le build et reste une piste d'optimisation.
 
-Pour le serveur Vite (`localhost:5173`) au lieu du serveur Nginx Docker :
+## Livrables HETIC et périmètre de déploiement
 
-```powershell
-cd frontend
-Copy-Item .env.example .env.local
-npm ci
-npm run dev
-```
+Le dépôt contient **le code applicatif et sa documentation d'exécution**. Le sujet HETIC demande **séparément** un dossier de conception PDF (15 pages maximum, couverture comprise), avec parcours UX, diagrammes UML (cas d'utilisation, domaine/classes, séquence), architecture et schéma SQL, organisation, tests, sécurité, déploiement cible et bilan avec usage de l'IA. Le README ne se substitue pas à ce livrable.
 
-Dans un autre terminal, démarrer la base et l'API via Compose. Ne pas lancer le
-service `frontend` de Compose en même temps sur le port 5173.
-
----
-
-## Notes techniques
-
-### Tests et base de données
-Les tests utilisent une base **SQLite en mémoire** (avec `StaticPool`) pour garantir l'isolation et ne pas polluer la base PostgreSQL de développement. La production utilise PostgreSQL. Les requêtes SQL testées sont compatibles avec les deux moteurs.
-
-## Chemin du fichier NOAA ONI (#31)
-
-Le script `etl/import_oni.py` lit le chemin dans la variable d'environnement
-`NOAA_ONI_FILEPATH`. Si elle est absente ou vide, le chemin par défaut est
-`/app/data/oni.data`. Un appel explicite `main(filepath)` reste prioritaire.
-
-### Avec Docker Compose (PowerShell)
-
-Le dossier local `./data` est monté dans le conteneur sous `/app/data`.
-Après avoir démarré la base et appliqué les migrations (démarrage rapide ci-dessus),
-placez le fichier NOAA dans `./data/oni.data`, puis lancez :
-
-```powershell
-docker compose run --rm etl python import_oni.py
-```
-
-Pour utiliser un autre fichier, par exemple `./data/oni-alternative.data`,
-indiquez son chemin **dans le conteneur** dans votre `.env` :
-
-```dotenv
-NOAA_ONI_FILEPATH=/app/data/oni-alternative.data
-```
-
-Ou surchargez la variable pour une seule exécution :
-
-```powershell
-docker compose run --rm -e NOAA_ONI_FILEPATH=/app/data/oni-alternative.data etl python import_oni.py
-```
-
-### Exécution locale Python (sans conteneur ETL)
-
-Sous PowerShell, choisissez un chemin Windows avant de lancer le script :
-
-```powershell
-$env:NOAA_ONI_FILEPATH = (Resolve-Path .\data\oni.data).Path
-$env:PYTHONPATH = (Resolve-Path .\api).Path
-# Configurer aussi les variables POSTGRES_* pour une base locale accessible.
-py -3 .\etl\import_oni.py
-```
-
-Un fichier `.env` est interprété par Docker Compose mais n'est pas chargé
-automatiquement par Python en execution locale.
-
-### Tests
-
-```powershell
-docker compose run --rm etl pytest tests -v
-```
-
-## Traçabilité des imports NOAA (#32)
-
-- **Source officielle** : NOAA CPC, [fichier ONI](https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt), indice ONI calculé à partir d'ERSSTv6 (`version = v6`). La version est documentée, et non détectée automatiquement dans le fichier texte.
-- **`Source.extracted_at`** : dernière date à laquelle l'ETL a terminé de lire le fichier local, enregistrée en UTC. Cette date est actualisée à chaque import, y compris sans changement de valeurs.
-- **`Import.extracted_at`** : date de lecture propre à chaque exécution, conservée avec `row_count`, `checksum` SHA-256 et `imported_at`. Une date inconnue sur un import historique reste `NULL` (pas de date inventée).
-- **Important** : l'ETL **ne télécharge pas** le fichier NOAA. Il ne connaît donc pas la date à laquelle tu l'as téléchargé depuis NOAA. `extracted_at` signifie ici « extraction par l'ETL depuis le fichier local », pas date de publication ni de téléchargement NOAA.
-- **Réimport** : pour chaque couple `(indice, date)`, une nouvelle observation est insérée ; une valeur identique reste inchangée et conserve son `import_id` ; une valeur différente est **révisée** avec le nouvel `import_id`. Les dates absentes d'un fichier récent ne sont pas supprimées.
-- **Limite d'audit** : le nouveau `checksum` permet de vérifier un fichier conservé, mais les anciennes valeurs écrasées ne sont pas historisées. Il faut conserver les fichiers NOAA originaux si une reconstitution exacte est nécessaire.
-- **Horodatage API** : `provenance.extracted_at` vient de l'import associé à chaque observation. L'API renvoie aussi `provenance.checksum`. Si plusieurs dates d'extraction coexistent dans une période, `extracted_at` au niveau global est `null`.
-
-### Migration PostgreSQL dans Docker Compose (#32)
-
-Le service `api` lance automatiquement `alembic upgrade head` avant Uvicorn.
-Pour rejouer cette commande manuellement depuis la racine du projet :
-
-```powershell
-docker compose run --rm api alembic upgrade head
-```
-
-Cette migration **ajoute** `imports.extracted_at` sans supprimer les observations existantes. Les anciens imports auront `extracted_at = NULL` car leur date de lecture exacte est inconnue.
-
-### Vérifier la stratégie
-
-```powershell
-docker compose run --rm etl pytest tests -v
-docker compose run --rm api pytest tests -v
-```
-
-Après avoir récupéré une nouvelle version officielle du fichier, remplacez le fichier local configuré (voir #31) et relancez :
-
-```powershell
-docker compose run --rm etl python import_oni.py
-```
+**Docker Compose ci-dessus est destiné au développement local.** Le déploiement sur VPS avec HTTPS/Caddy, sauvegardes et gestion des secrets relève de l'architecture cible à justifier dans le dossier ; il n'est pas fourni ici comme un déploiement public opérationnel.
