@@ -1,12 +1,14 @@
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
-from datetime import date
+from sqlalchemy.orm import Session, joinedload
+
 from ..db import SessionLocal
-from ..models import Observation, Indice, Source
-from ..schemas import ObservationsResponse, ObservationFilter
+from ..models import Import, Observation
+from ..schemas import ObservationFilter, ObservationsResponse
 
 router = APIRouter()
+
 
 def get_db():
     db = SessionLocal()
@@ -28,21 +30,60 @@ def get_filters(
 @router.get("/observations", response_model=ObservationsResponse)
 def get_observations(
     filters: ObservationFilter = Depends(get_filters),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    obs = db.query(Observation).filter(
-        Observation.date >= filters.start,
-        Observation.date <= filters.end
-    ).order_by(Observation.date).all()
+    # Précharge la source de chaque import et l'indice de chaque observation.
+    # Sans cela, des requêtes supplémentaires seraient déclenchées pour chaque ligne.
+    observations = (
+        db.query(Observation)
+        .options(
+            joinedload(Observation.import_record).joinedload(Import.source),
+            joinedload(Observation.indice),
+        )
+        .filter(
+            Observation.date >= filters.start,
+            Observation.date <= filters.end,
+        )
+        .order_by(Observation.date, Observation.id)
+        .all()
+    )
 
-    indice = db.query(Indice).first()
-    source = db.query(Source).first()
+    resultats = []
+    couples_source_indice = set()
+
+    for observation in observations:
+        import_record = observation.import_record
+        source = import_record.source
+        indice = observation.indice
+        couples_source_indice.add((source.id, indice.id))
+
+        resultats.append({
+            "date": observation.date,
+            "value": observation.value,
+            "provenance": {
+                "source_id": source.id,
+                "source": source.name,
+                "source_url": source.url,
+                "version": source.version,
+                "extracted_at": source.extracted_at,
+                "import_id": import_record.id,
+                "imported_at": import_record.imported_at,
+                "indice_code": indice.code,
+                "indice": indice.label,
+                "unit": indice.unit,
+            },
+        })
+
+    # Les métadonnées au niveau de la réponse ne sont renseignées que
+    # lorsqu'une seule source et un seul indice couvrent toute la période.
+    # Pour une période vide ou mixte, elles restent nulles plutôt que fausses.
+    metadata = resultats[0]["provenance"] if len(couples_source_indice) == 1 else None
 
     return {
-        "source": source.name if source else "Inconnue",
-        "indice": indice.label if indice else "ONI",
-        "unit": indice.unit if indice else "°C",
-        "version": source.version if source else "N/A",
-        "extracted_at": source.extracted_at if source else None,
-        "observations": obs
+        "source": metadata["source"] if metadata else None,
+        "indice": metadata["indice"] if metadata else None,
+        "unit": metadata["unit"] if metadata else None,
+        "version": metadata["version"] if metadata else None,
+        "extracted_at": metadata["extracted_at"] if metadata else None,
+        "observations": resultats,
     }

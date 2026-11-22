@@ -103,3 +103,23 @@ describe('App', () => {
     });
   });
 });
+// Une période mixte ou vide ne possède pas de métadonnées globales fiables.
+describe('provenance des observations', () => {
+  it("n'affiche pas une fausse source ni une date invalide pour une période mixte", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ...buildResponse([{ date: '1997-01-01', value: 1.5 }]),
+        source: null,
+        indice: null,
+        unit: null,
+        version: null,
+        extracted_at: null,
+      }),
+    });
+
+    render(<App />);
+    expect(await screen.findByText(/Plusieurs sources ou indices/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Invalid Date/i)).not.toBeInTheDocument();
+  });
+});
