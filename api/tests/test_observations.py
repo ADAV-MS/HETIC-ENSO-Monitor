@@ -320,3 +320,24 @@ def test_filtre_temporel_parametres_obligatoires():
     ):
         response = client.get(url)
         assert response.status_code == 422
+
+
+def test_cors_autorise_origine_configuree():
+    """Preflight requests must work from the configured frontend origin."""
+    origins = [
+        origin.strip()
+        for origin in os.getenv(
+            "ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+        ).split(",")
+        if origin.strip()
+    ]
+    assert origins
+    response = client.options(
+        "/api/v1/observations",
+        headers={
+            "Origin": origins[0],
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == origins[0]
