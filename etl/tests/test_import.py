@@ -226,3 +226,38 @@ def test_main_annule_import_apres_echec_et_ferme_session(
         assert db.query(Indice).count() == 0
         assert db.query(Import).count() == 0
         assert db.query(Observation).count() == 0
+
+
+def test_repositories_ne_valident_pas_la_transaction(sessions_tracees):
+    """Les accès SQL préparent les écritures, mais seul main() décide du commit."""
+    from repositories import (
+        ajouter_observation,
+        enregistrer_import,
+        observation_existe,
+        obtenir_ou_creer_indice,
+        obtenir_ou_creer_source,
+    )
+
+    SessionTest, _ = sessions_tracees
+    db = SessionTest()
+    try:
+        source = obtenir_ou_creer_source(db)
+        indice = obtenir_ou_creer_indice(db)
+        record = enregistrer_import(db, source.id, 1, "sha256-test")
+        obs_date = convertir_saison_en_date("DJF", 1950)
+        assert not observation_existe(db, indice.id, obs_date)
+        ajouter_observation(
+            db, import_id=record.id, indice_id=indice.id, obs_date=obs_date, value=-1.32
+        )
+        db.flush()
+        assert observation_existe(db, indice.id, obs_date)
+        assert db.nb_commits == 0
+        db.rollback()
+    finally:
+        db.close()
+
+    with SessionTest() as verification:
+        assert verification.query(Source).count() == 0
+        assert verification.query(Indice).count() == 0
+        assert verification.query(Import).count() == 0
+        assert verification.query(Observation).count() == 0

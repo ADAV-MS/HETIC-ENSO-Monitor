@@ -2,12 +2,18 @@ import sys
 import os
 import hashlib
 import pandas as pd
-from datetime import datetime, UTC, date
+from datetime import datetime, date
 
 # Lien avec l'API pour utiliser les mêmes modèles
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'api')))
 from app.db import SessionLocal
-from app.models import Source, Indice, Import, Observation
+from repositories import (
+    ajouter_observation,
+    enregistrer_import,
+    observation_existe,
+    obtenir_ou_creer_indice,
+    obtenir_ou_creer_source,
+)
 
 SEASON_TO_MONTH = {
     "DJF": 1, "JFM": 2, "FMA": 3, "MAM": 4, "AMJ": 5, "MJJ": 6,
@@ -34,39 +40,6 @@ def lire_donnees_oni(filepath: str) -> pd.DataFrame:
     return pd.read_csv(filepath, sep=r"\s+")
 
 
-def obtenir_ou_creer_source(db) -> Source:
-    """Récupère la source NOAA CPC ou l'enregistre si elle est absente."""
-    source = db.query(Source).filter_by(name="NOAA CPC").first()
-    if not source:
-        source = Source(
-            name="NOAA CPC",
-            url="https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt",
-            version="v6",
-            extracted_at=datetime.now(UTC),
-        )
-        db.add(source)
-        db.flush()  # Attribue l'ID sans valider la transaction.
-    return source
-
-
-def obtenir_ou_creer_indice(db) -> Indice:
-    """Récupère la définition de l'indice ONI ou la crée."""
-    indice = db.query(Indice).filter_by(code="ONI").first()
-    if not indice:
-        indice = Indice(code="ONI", label="Oceanic Niño Index", unit="°C anomaly")
-        db.add(indice)
-        db.flush()  # Attribue l'ID sans valider la transaction.
-    return indice
-
-
-def enregistrer_import(db, source_id: int, row_count: int, checksum: str) -> Import:
-    """Enregistre la traçabilité de l'import, avant les observations."""
-    import_record = Import(source_id=source_id, row_count=row_count, checksum=checksum)
-    db.add(import_record)
-    db.flush()  # L'ID est nécessaire pour associer les observations.
-    return import_record
-
-
 def transformer_ligne(row: pd.Series) -> tuple[date, float] | None:
     """Transforme une ligne NOAA en date et anomalie, ou l'ignore si la saison est inconnue."""
     season = row["SEAS"]
@@ -89,12 +62,13 @@ def enregistrer_observations(db, df: pd.DataFrame, indice_id: int, import_id: in
             continue
 
         obs_date, value = observation
-        exists = db.query(Observation).filter_by(index_id=indice_id, date=obs_date).first()
-        if exists:
+        if observation_existe(db, indice_id, obs_date):
             skipped += 1
             continue
 
-        db.add(Observation(import_id=import_id, index_id=indice_id, date=obs_date, value=value))
+        ajouter_observation(
+            db, import_id=import_id, indice_id=indice_id, obs_date=obs_date, value=value
+        )
         inserted += 1
 
     return inserted, skipped
