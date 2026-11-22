@@ -215,3 +215,24 @@ def test_une_base_sans_source_ne_provoque_pas_de_500():
     assert data["observations"] == []
     assert data["source"] is None
     assert data["extracted_at"] is None
+
+def test_service_delegue_la_recherche_au_repository(monkeypatch):
+    """Business logic must call the repository rather than query SQL itself."""
+    from app.schemas import ObservationFilter
+    from app.services import observations as service
+
+    appels = []
+    session_factice = object()
+    periode = ObservationFilter(start=date(2020, 1, 1), end=date(2020, 3, 31))
+
+    def faux_lister_observations(db, debut, fin):
+        appels.append((db, debut, fin))
+        return []
+
+    monkeypatch.setattr(service, "lister_observations", faux_lister_observations)
+    resultat = service.construire_reponse_observations(session_factice, periode)
+
+    assert appels == [(session_factice, periode.start, periode.end)]
+    assert resultat.observations == []
+    assert resultat.source is None
+    assert resultat.extracted_at is None
