@@ -1,4 +1,4 @@
-# Tests et vérifications — ENSO Monitor
+﻿# Tests et vérifications — ENSO Monitor
 
 ## Périmètre, exécution et résultats
 
@@ -24,6 +24,22 @@ cd ..
 **Total constaté : 38 tests automatisés réussis.** `npm run lint` et `npm run build` ont également réussi lors de cette vérification. Ces chiffres sont un **instantané des exécutions communiquées**, et non une garantie pour une installation future : relancer les commandes pour obtenir le résultat de la version courante.
 
 Les tests Python utilisent **SQLite en mémoire**, avec des fixtures isolées ; ils ne prouvent pas à eux seuls que les migrations ou les accès PostgreSQL fonctionnent. Les tests frontend utilisent des mocks réseau : ils ne prouvent pas à eux seuls l'intégration navigateur/API.
+
+## Nouvelle vérification locale du 22 novembre 2026 (issue #18)
+
+Les commandes ont été **réexécutées sur le code courant** et les sorties de terminal confirment :
+
+| Environnement | Commande | Résultat |
+|---|---|---|
+| ETL, conteneur Python 3.12 | `docker compose run --rm etl pytest tests -v` | **17 tests réussis**, 2,58 s |
+| API, conteneur Python 3.12 | `docker compose run --rm api pytest tests -v` | **15 tests réussis**, 1,94 s |
+| Frontend, Windows/Node 25.8.0 | `npm test` | **6 tests réussis** |
+| Frontend, Windows/Node 25.8.0 | `npm run lint` et `npm run build` | **Réussis** |
+| Frontend, Docker/Node 24 | `npm ci && npm test && npm run lint && npm run build` | **6 tests réussis**, lint et build réussis |
+
+La validation automatisée représente **38 tests distincts** (17 + 15 + 6) ; les 6 tests frontend ont été exécutés deux fois, sans être comptés en double. Une première installation npm sous Windows a échoué sur un verrouillage de fichier natif (`EPERM`), puis a réussi à la nouvelle tentative. Le build Vite rapporte un avertissement non bloquant sur la taille du bundle (636,60 Ko). `npm ci` signale **7 vulnérabilités modérées** : ce signalement requiert une analyse `npm audit` avant toute décision de mise à jour et ne doit pas être confondu avec une vérification de sécurité concluante.
+
+**Preuves visuelles exigées par #18 :** enregistrer trois captures authentiques de la console affichant les lignes récapitulatives `17 passed`, `15 passed` et `Tests 6 passed` dans `docs/screenshots/etl-tests.png`, `docs/screenshots/api-tests.png` et `docs/screenshots/frontend-tests.png`. Les trois captures authentiques sont versionnées dans docs/screenshots/ et intégrées ci-dessous. Ne pas générer de fausses captures à partir de texte recopié.
 
 ## Matrice de non-régression
 
@@ -83,3 +99,17 @@ Le précédent journal de développement (issue #14) rapporte une navigation au 
 - Vitest simule les réponses API ; il ne constitue pas un test E2E navigateur complet.
 - Le contrôle de taille du bundle Vite est un avertissement de performance, pas un échec du build.
 - Les valeurs ONI récentes sont révisables ; les anciennes valeurs écrasées ne sont pas conservées dans la table `observations` (voir [provenance NOAA](sources-noaa.md)).
+
+## Captures des tests automatisés
+
+### Tests ETL — 17/17
+
+![Résultat des tests ETL](screenshots/etl-tests.png)
+
+### Tests API — 15/15
+
+![Résultat des tests API](screenshots/api-tests.png)
+
+### Tests frontend — 6/6
+
+![Résultat des tests frontend](screenshots/frontend-tests.png)

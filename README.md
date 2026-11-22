@@ -39,6 +39,21 @@ docker compose run --rm etl python import_oni.py
 
 **Adresses locales :** interface <http://localhost:5173> ; documentation API <http://localhost:8000/docs> ; santé <http://localhost:8000/api/v1/health>. Ouvrir l'interface et vérifier le graphique puis modifier les dates et sélectionner « Actualiser ».
 
+### Développement frontend sans Nginx (optionnel)
+
+Le mode Docker Compose ci-dessus sert le frontend avec **Nginx**. Pour développer avec **Vite** et `npm run dev`, installer **Node.js 24** et npm sur l'hôte (Node.js 25 n'est pas dans la plage de versions déclarée par Vitest 5.1.1). Garder l'API et PostgreSQL démarrés avec Compose ; arrêter le frontend Nginx s'il utilise déjà le port 5173 :
+
+```powershell
+docker compose up --build -d db api
+docker compose stop frontend
+cd frontend
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+npm ci
+npm run dev
+```
+
+La configuration Vite `frontend/.env` doit définir `VITE_API_URL=http://localhost:8000/api/v1` si l'API est sur le port local 8000. La variable du `.env` **racine** sert à Docker Compose et ne remplace pas automatiquement `frontend/.env` pour Vite. Le serveur de développement s'ouvre sur <http://localhost:5173> ; l'arrêter avec `Ctrl+C` puis revenir à la racine avec `cd ..`. Ne pas lancer simultanément Vite et le frontend Compose sur le même port.
+
 Vérifier également la **vraie pile PostgreSQL** (les tests unitaires utilisent SQLite) :
 
 ```powershell
@@ -131,6 +146,12 @@ cd ..
 Au 22 novembre 2026, les validations locales rapportées pour l'issue #35 sont **17 tests ETL, 15 tests API et 6 tests frontend réussis**, avec lint et build frontend réussis. Les suites Python utilisent SQLite en mémoire ; compléter par le test HTTP de la pile PostgreSQL indiqué ci-dessus. Détails et scénarios : [docs/tests.md](docs/tests.md).
 
 Le build Vite peut avertir que le bundle JavaScript dépasse 500 Ko ; ce warning de taille n'empêche pas le build et reste une piste d'optimisation.
+
+## Usage de l'IA
+
+**Outil déclaré :** ChatGPT (OpenAI), utilisé comme assistant pour formuler et réviser des propositions d'architecture, de refactoring du code ETL/API/frontend, de tests de non-régression, de diagrammes Mermaid et de documentation technique. L'auteur a intégré les modifications dans le dépôt Git, exécuté les commandes de vérification et contrôlé les résultats avant les Pull Requests. L'assistance IA ne remplace ni les tests d'exécution ni la revue des limites scientifiques.
+
+Les observations ONI sont issues du fichier **NOAA CPC** téléchargé séparément : les mesures ne sont pas générées par l'IA. Cette déclaration décrit l'assistance documentée dans ce projet ; elle doit être complétée si d'autres outils d'IA ont été utilisés.
 
 ## Livrables HETIC et périmètre de déploiement
 
