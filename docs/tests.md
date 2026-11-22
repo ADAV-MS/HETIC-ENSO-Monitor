@@ -1,48 +1,51 @@
-# Preuves d'exécution des tests
+# Tests et preuves de vérification — ENSO Monitor
 
-## 1. Test ETL (Issue #6)
+## Exécuter les tests (#33)
 
-**Commande :** `docker compose run --rm etl pytest tests -v`
+Depuis la racine du dépôt, dans PowerShell :
 
-**Résultat :**
-```text
-platform linux -- Python 3.12.16, pytest-8.3.3, pluggy-1.7.0
-rootdir: /app
-collected 2 items
-
-tests/test_import.py::test_saison_invalide PASSED
-tests/test_import.py::test_doublon_non_reinsere PASSED
-
-============================== 2 passed in 1.07s ==============================
+```powershell
+docker compose run --rm etl pytest tests -v
+docker compose run --rm api pytest tests -v
+cd frontend
+npm test
+npm run build
+cd ..
 ```
 
-**Ce qui est testé :**
-- Le rejet d'une saison invalide (qui ne correspond à aucun mois).
-- La détection d'un doublon via une requête SQL (simulée sur une base SQLite en mémoire).
+Les suites Python utilisent **SQLite en mémoire** pour isoler les tests ; elles ne
+valident pas à elles seules l'exécution réelle de migrations sur PostgreSQL.
+Pour la base de développement, appliquer séparément la migration :
 
-## 2. Test API (Issue #10)
-
-**Commande :** `docker compose run --rm api pytest tests -v`
-
-**Résultat :**
-```text
-platform linux -- Python 3.12.16, pytest-8.3.3, pluggy-1.7.0
-rootdir: /app
-configfile: pytest.ini
-collected 3 items
-
-tests/test_observations.py::test_observations_valid_period PASSED
-tests/test_observations.py::test_observations_invalid_dates PASSED
-tests/test_observations.py::test_observations_empty_period PASSED
-
-============================== 3 passed in 0.91s ==============================
+```powershell
+docker compose run --rm api alembic upgrade head
+docker compose run --rm api alembic current
 ```
 
-**Ce qui est testé :**
-- Période valide → 200 avec les bonnes observations.
-- Format invalide ou ordre inversé → 422.
-- Période sans données → 200 avec liste vide.
-*(Note : les tests utilisent SQLite en mémoire avec `StaticPool`. La limite SQLite/PostgreSQL est documentée dans le README).*
+## Couverture des risques ETL et API (#33)
+
+| Risque | Test(s) existant(s) | Attendu |
+|---|---|---|
+| Réimport du même fichier | `test_reimport_identique_conserve_identifiants_et_ne_duplique_pas` | Une seule observation par indice/date ; nouveaux imports tracés |
+| Révision des valeurs NOAA | `test_reimport_noaa_revision_et_observation_inchangee` | Valeur mise à jour sans doublon |
+| Échec en cours d'import | `test_main_annule_import_apres_echec_et_ferme_session` | Rollback, session fermée, aucune écriture partielle |
+| Échec après révision | `test_revision_rollback_restitue_ancienne_valeur` | Ancienne valeur et provenance restaurées |
+| Absence de source | `test_une_base_sans_source_ne_provoque_pas_de_500` | HTTP 200, observations vides, métadonnées nulles |
+| Plusieurs sources | `test_plusieurs_sources_sans_provenance_arbitraire` | Provenance propre à chaque observation |
+| Dates invalides/inversées | `test_observations_invalid_dates` | HTTP 422 |
+| Borne de début/fin incluse | `test_filtre_temporel_bornes_inclusives` | Une observation exactement sur la borne |
+| Dates manquantes | `test_filtre_temporel_parametres_obligatoires` | HTTP 422 |
+
+## Suites de tests
+
+- **ETL : 17 tests** après l'issue #32, notamment lecture du fichier NOAA,
+  checksum, transactions, configuration et révisions.
+- **API : 14 tests** après l'issue #33, notamment filtres, provenances,
+  métadonnées absentes et séparation service/repository.
+- **Frontend : 3 tests**, dont filtre de période et provenance mixte.
+
+Ces nombres décrivent les tests présents dans le dépôt ; les commandes ci-dessus
+restent la source de vérité pour les exécutions locales.
 
 ## 3. Accessibilité (Issue #14)
 
