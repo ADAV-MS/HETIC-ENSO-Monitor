@@ -44,10 +44,6 @@ tests/test_observations.py::test_observations_empty_period PASSED
 - Période sans données → 200 avec liste vide.
 *(Note : les tests utilisent SQLite en mémoire avec `StaticPool`. La limite SQLite/PostgreSQL est documentée dans le README).*
 
-## Validation côté frontend
-
-En complément de la validation Pydantic côté API (issue #9), le frontend vérifie `start <= end` avant tout appel réseau. Si `start > end`, un message d'erreur s'affiche instantanément et le bouton « Réessayer » est proposé. Aucun appel API inutile n'est effectué.
-
 ## 3. Accessibilité (Issue #14)
 
 **Tests manuels effectués :**
@@ -64,3 +60,27 @@ En complément de la validation Pydantic côté API (issue #9), le frontend vér
 
 - **Outil** : axe DevTools (extension navigateur)
 - **Résultat** : **0 problème automatique détecté** sur la page.
+
+## 4. Test Frontend (Issue #16)
+
+**Commande :** `cd frontend && npm test`
+
+**Résultat :**
+```text
+ ✓ src/App.test.tsx (2 tests) 388ms
+   ✓ App (2)
+     ✓ appelle fetch avec les nouvelles dates après changement de période 306ms
+     ✓ met à jour les valeurs affichées après changement de période 79ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+```
+
+**Ce qui est testé :**
+- Après changement des champs `start` / `end` et clic sur « Actualiser », `fetch` est rappelé avec les nouvelles dates dans l'URL.
+- La table principale « Statistiques sur la période » affiche les nouvelles valeurs (max passe de 2.00 °C à 2.60 °C).
+*(Note : `fetch` est mocké via `vi.stubGlobal`, aucun appel réseau réel. `ResizeObserver` est polyfillé pour Recharts, `cleanup()` est appelé entre chaque test, et `within(mainTable)` isole la table principale des tables de comparaison).*
+
+## 5. Validation croisée (Frontend + API)
+
+En complément de la validation Pydantic côté API (issue #9), le frontend vérifie `start <= end` avant tout appel réseau. Si `start > end`, un message d'erreur s'affiche instantanément et le bouton « Réessayer » est proposé. Aucun appel API inutile n'est effectué.
